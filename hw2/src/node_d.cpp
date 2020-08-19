@@ -7,15 +7,16 @@
 #include <fstream>
 #include <math.h>
 
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
-
 #include <moveit_msgs/DisplayRobotState.h>
 #include <moveit_msgs/DisplayTrajectory.h>
-
 #include <moveit_msgs/AttachedCollisionObject.h>
 #include <moveit_msgs/CollisionObject.h>
-
 #include <moveit_visual_tools/moveit_visual_tools.h>
 
 using namespace std;
@@ -95,9 +96,22 @@ void startPosition()
     move_group->move();
 
     ROS_INFO_STREAM("Motion duration: " << (ros::Time::now() - start).toSec());
+
+    geometry_msgs::PoseStamped current_pose =
+        move_group->getCurrentPose();
+
+    ROS_INFO("pose of end effector:");
+    ROS_INFO("\t\t- pose = [%f, %f, %f]", current_pose.pose.position.x,
+             current_pose.pose.position.y,
+             current_pose.pose.position.z);
+    ROS_INFO("\t\t- orient = [%f, %f, %f, %f]", current_pose.pose.orientation.x,
+             current_pose.pose.orientation.y,
+             current_pose.pose.orientation.z,
+             current_pose.pose.orientation.w);
 }
 
-double to_degrees(double radians) {
+double to_degrees(double radians)
+{
     return radians * (180.0 / M_PI);
 }
 
@@ -121,27 +135,52 @@ geometry_msgs::Quaternion ToQuaternion(double yaw, double pitch, double roll) //
 }
 void moveOverObject(apriltag_ros::AprilTagDetection object)
 {
-
-    //Pose computed with respect to world frame
-    geometry_msgs::Pose target_pose1;
-    target_pose1.orientation = ToQuaternion(to_degrees(1.57), to_degrees(0.13), to_degrees(-1.57));
-    //target_pose1.orientation.x = 0;
-    //target_pose1.orientation.y = 0;
-    //target_pose1.orientation.z = -1.57;
-    //target_pose1.orientation.w = 0;
-    target_pose1.position.x = object.pose.pose.pose.position.x;
-    target_pose1.position.y = object.pose.pose.pose.position.y;
-    target_pose1.position.z = object.pose.pose.pose.position.z - 0.5;
     move_group->setPoseReferenceFrame("world");
 
-    ROS_INFO("target pose of object:");
-    ROS_INFO("\t\t- pose = [%f, %f, %f]", target_pose1.position.x,
-             target_pose1.position.y,
-             target_pose1.position.z);
-    ROS_INFO("\t\t- orient = [%f, %f, %f, %f]", target_pose1.orientation.x,
-             target_pose1.orientation.y,
-             target_pose1.orientation.z,
-             target_pose1.orientation.w);
+    //Pose computed with respect to world frame
+    geometry_msgs::PoseStamped target_pose;
+    geometry_msgs::PoseStamped current_pose =
+        move_group->getCurrentPose();
+
+    //target_pose1.orientation = ToQuaternion(to_degrees(1.57), to_degrees(0), to_degrees(1.57));
+    target_pose.pose.orientation.x = 0.00;
+    target_pose.pose.orientation.y = 0.00;
+    target_pose.pose.orientation.z = 0.00;
+    target_pose.pose.orientation.w = 0.00;
+    target_pose.pose.position.x = object.pose.pose.pose.position.x;
+    target_pose.pose.position.y = object.pose.pose.pose.position.y;
+    target_pose.pose.position.z = 0.735 + 0.270 + 1;
+
+    tf2_ros::Buffer tfBuffer;
+    tf2_ros::TransformListener tfListener(tfBuffer);
+    geometry_msgs::TransformStamped transformStamped;
+    geometry_msgs::PoseStamped target_pose_tf;
+
+    ros::Duration timeout(50.0);
+    try
+    { //camera_rgb_optical_frame
+        transformStamped = tfBuffer.lookupTransform("world", "camera_rgb_optical_frame", ros::Time::now(), timeout);
+        //transformStamped.header.frame_id = "world";
+        tf2::doTransform(target_pose, target_pose_tf, transformStamped);
+    }
+    catch (tf2::TransformException &ex)
+    {
+        ROS_INFO("Error Trasformation...%s", ex.what());
+    }
+    target_pose_tf.pose.position.z = 0.735 + 0.270 + 0.325;
+    target_pose_tf.pose.orientation.x = current_pose.pose.orientation.x;
+    target_pose_tf.pose.orientation.y = current_pose.pose.orientation.y;
+    target_pose_tf.pose.orientation.z = current_pose.pose.orientation.z;
+    target_pose_tf.pose.orientation.w = current_pose.pose.orientation.w;
+
+    ROS_INFO("Move over object:");
+    ROS_INFO("\t\t- pose = [%f, %f, %f]", target_pose_tf.pose.position.x,
+             target_pose_tf.pose.position.y,
+             target_pose_tf.pose.position.z);
+    ROS_INFO("\t\t- orient = [%f, %f, %f, %f]", target_pose_tf.pose.orientation.x,
+             target_pose_tf.pose.orientation.y,
+             target_pose_tf.pose.orientation.z,
+             target_pose_tf.pose.orientation.w);
 
     //ROS_INFO("Pose Reference Frame: ", move_group.getPoseReferenceFrame());
     const robot_state::JointModelGroup *joint_model_group =
@@ -158,7 +197,7 @@ void moveOverObject(apriltag_ros::AprilTagDetection object)
     move_group->setStartStateToCurrentState();
     move_group->setMaxVelocityScalingFactor(1.0);
 
-    move_group->setPoseTarget(target_pose1, "ee_link");
+    move_group->setPoseTarget(target_pose_tf, "ee_link");
     move_group->setGoalPositionTolerance(0.05);
     move_group->setGoalOrientationTolerance(0.05);
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
@@ -177,6 +216,69 @@ void moveOverObject(apriltag_ros::AprilTagDetection object)
     move_group->move();
 
     ROS_INFO_STREAM("Motion duration: " << (ros::Time::now() - start).toSec());
+
+    current_pose = move_group->getCurrentPose();
+
+    ROS_INFO("pose of end effector:");
+    ROS_INFO("\t\t- pose = [%f, %f, %f]", current_pose.pose.position.x,
+             current_pose.pose.position.y,
+             current_pose.pose.position.z);
+    ROS_INFO("\t\t- orient = [%f, %f, %f, %f]", current_pose.pose.orientation.x,
+             current_pose.pose.orientation.y,
+             current_pose.pose.orientation.z,
+             current_pose.pose.orientation.w);
+}
+void moveDown()
+{
+    std::vector<geometry_msgs::Pose> waypoints;
+    move_group->setPoseReferenceFrame("world");
+
+    //Pose computed with respect to world frame
+    geometry_msgs::Pose target_pose;
+    geometry_msgs::PoseStamped current_pose =
+        move_group->getCurrentPose();
+
+    target_pose = current_pose.pose;
+    target_pose.position.z = 0.735 + 0.270 + 0.08;
+    waypoints.push_back(target_pose);
+    ROS_INFO("Move down:");
+    ROS_INFO("\t\t- pose = [%f, %f, %f]", target_pose.position.x,
+             target_pose.position.y,
+             target_pose.position.z);
+    ROS_INFO("\t\t- orient = [%f, %f, %f, %f]", target_pose.orientation.x,
+             target_pose.orientation.y,
+             target_pose.orientation.z,
+             target_pose.orientation.w);
+
+    moveit_msgs::RobotTrajectory trajectory;
+    double fraction = move_group->computeCartesianPath(waypoints,
+                                                       0.01, // eef_step
+                                                       0.0,  // jump_threshold
+                                                       trajectory);
+
+    // Set start state to the current robot state
+    move_group->setStartStateToCurrentState();
+    move_group->setMaxVelocityScalingFactor(1.0);
+
+    moveit::planning_interface::MoveGroupInterface::Plan my_plan;
+    my_plan.trajectory_ = trajectory;
+    // Execute the plan
+    ros::Time start = ros::Time::now();
+
+    move_group->execute(my_plan);
+
+    ROS_INFO_STREAM("Motion duration: " << (ros::Time::now() - start).toSec());
+
+    current_pose = move_group->getCurrentPose();
+
+    ROS_INFO("pose of end effector:");
+    ROS_INFO("\t\t- pose = [%f, %f, %f]", current_pose.pose.position.x,
+             current_pose.pose.position.y,
+             current_pose.pose.position.z);
+    ROS_INFO("\t\t- orient = [%f, %f, %f, %f]", current_pose.pose.orientation.x,
+             current_pose.pose.orientation.y,
+             current_pose.pose.orientation.z,
+             current_pose.pose.orientation.w);
 }
 
 void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
@@ -255,6 +357,15 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
                 {
                     moveOverObject(found_objects.at(i));
 
+                    moveDown();
+
+                    ROS_INFO("Attach the object to the robot");
+                    move_group->attachObject(collision_objects.at(j).id);
+                    ros::Duration(10.0).sleep();
+
+                    std::vector<std::string> object_ids;
+                    object_ids.push_back(collision_objects.at(j).id);
+                    planning_scene_interface->removeCollisionObjects(object_ids);
                     collision_objects.erase(collision_objects.begin() + j);
                 }
             }
@@ -285,8 +396,6 @@ int main(int argc, char **argv)
         requested_objects.insert(requested_objects.begin(), frame_id_to_id.at(argv[i]));
     }
 
-    myfile.open("detections.txt");
-
     // SETUP
     // --------------
     move_group = new moveit::planning_interface::MoveGroupInterface(PLANNING_GROUP);
@@ -297,7 +406,6 @@ int main(int argc, char **argv)
     ros::Subscriber sub = n.subscribe("/tag_detections", 1000, chatterCallback);
     ROS_INFO("Node started and subscribed to /tag_detections");
 
-    myfile.close();
     ros::waitForShutdown();
     return 0;
 }
