@@ -19,7 +19,14 @@
 #include <moveit_msgs/CollisionObject.h>
 #include <moveit_visual_tools/moveit_visual_tools.h>
 
+#include <gazebo_msgs/SetModelState.h>
+#include <moveit/robot_model_loader/robot_model_loader.h>
+#include <sensor_msgs/JointState.h>
+
 using namespace std;
+ros::Publisher gazebo_model_state_pub;
+robot_model::RobotModelPtr kinematic_model;
+robot_state::RobotStatePtr kinematic_state;
 
 map<string, int> frame_id_to_id;
 vector<int> requested_objects;
@@ -40,6 +47,7 @@ moveit::planning_interface::PlanningSceneInterface *planning_scene_interface;
 std::vector<moveit_msgs::CollisionObject> collision_objects;
 
 bool processing = false;
+bool attached = false;
 void initializeMap()
 {
     frame_id_to_id.insert(pair<string, int>("red_cube_0", 0));
@@ -361,19 +369,64 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
 
                     ROS_INFO("Attach the object to the robot");
                     move_group->attachObject(collision_objects.at(j).id);
-                    ros::Duration(10.0).sleep();
 
                     std::vector<std::string> object_ids;
                     object_ids.push_back(collision_objects.at(j).id);
                     planning_scene_interface->removeCollisionObjects(object_ids);
                     collision_objects.erase(collision_objects.begin() + j);
+                    attached = true;
+                    ros::Duration(10.0).sleep();
                 }
             }
         }
         processing = false;
     }
 }
+void jointStatesCallback(const sensor_msgs::JointState &joint_states_current)
+{
+    if (attached)
+    {
 
+        const robot_state::JointModelGroup *joint_model_group = kinematic_model->getJointModelGroup(PLANNING_GROUP);
+        const std::vector<std::string> &joint_names = joint_model_group->getJointModelNames();
+
+        std::vector<double> joint_states;
+        for (size_t i = 0; i < joint_states_current.position.size() - 2; ++i)
+        {
+            joint_states.push_back(joint_states_current.position[i + 2]);
+        }
+        kinematic_state->setJointGroupPositions(joint_model_group, joint_states);
+
+        const Eigen::Affine3d &end_effector_state = kinematic_state->getGlobalLinkTransform("wrist_3_link");
+        ROS_INFO("Link pose: [%f, %f, %f]", end_effector_state.translation().x(), end_effector_state.translation().y(), end_effector_state.translation().z());
+
+        //double end_effector_z_offset = 0.125;
+        //Eigen::Affine3d tmp_transform(Eigen::Translation3d(Eigen::Vector3d(0.0, 0.0, end_effector_z_offset)));
+
+        //Eigen::Affine3d newState = end_effector_state * tmp_transform;
+        Eigen::Affine3d newState = end_effector_state;
+
+        geometry_msgs::Pose pose;
+        pose.position.x = newState.translation().x();
+        pose.position.y = newState.translation().y();
+        pose.position.z = newState.translation().z();
+
+        Eigen::Quaterniond quat(newState.rotation());
+        pose.orientation.w = quat.w();
+        pose.orientation.x = quat.x();
+        pose.orientation.y = quat.y();
+        pose.orientation.z = quat.z();
+
+        gazebo_msgs::ModelState model_state;
+        // This string results from the spawn_urdf call in the box.launch file argument: -model box
+        model_state.model_name = std::string("Hexagon0");
+        model_state.pose = pose;
+        model_state.reference_frame = std::string("world");
+
+        ROS_INFO("Hexagon pose: [%f, %f, %f]", pose.position.x, pose.position.y, pose.position.z);
+        gazebo_model_state_pub.publish(model_state);
+    }
+}
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "node_d");
@@ -401,11 +454,17 @@ int main(int argc, char **argv)
     move_group = new moveit::planning_interface::MoveGroupInterface(PLANNING_GROUP);
 
     planning_scene_interface = new moveit::planning_interface::PlanningSceneInterface;
+    robot_model_loader::RobotModelLoader robot_model_loader("robot_description");
+    kinematic_model = robot_model_loader.getModel();
+    ROS_INFO("Model frame: %s", kinematic_model->getModelFrame().c_str());
+
+    kinematic_state = robot_state::RobotStatePtr(new robot_state::RobotState(kinematic_model));
 
     startPosition();
     ros::Subscriber sub = n.subscribe("/tag_detections", 1000, chatterCallback);
+    ros::Subscriber joint_states_sub = n.subscribe("/ur5/joint_states", 1000, jointStatesCallback);
     ROS_INFO("Node started and subscribed to /tag_detections");
-
+    gazebo_model_state_pub = n.advertise<gazebo_msgs::ModelState>("/gazebo/set_model_state", 1000);
     ros::waitForShutdown();
     return 0;
 }
