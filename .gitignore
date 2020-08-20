@@ -11,3 +11,10 @@ hw2/src/.vscode/
 
 intro_tutorial/
 rviz_visual_tools/
+
+geometric_shapes/
+moveit/
+moveit_msgs/
+moveit_tutorials/
+moveit_visual_tools/
+panda_moveit_config/
