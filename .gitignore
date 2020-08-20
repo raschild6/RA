@@ -1,10 +1,8 @@
-package.xml
 internal/
 third_party/
 
 .rosinstall
 .rosinstall.bak
-CMakeLists.txt
 
 hw2/.vscode/
 hw2/src/.vscode/
