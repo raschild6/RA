@@ -575,7 +575,6 @@ pcl::PointCloud<PointType>::Ptr Plan_segmentation(const pcl::PointCloud<PointTyp
 	pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
 	pcl::PointCloud<pcl::Normal>::Ptr cloud_normals2 (new pcl::PointCloud<pcl::Normal>);
 	
-
 	// Create the segmentation object
 	pcl::SACSegmentation<PointType> seg;
 	seg.setOptimizeCoefficients (true);
@@ -673,14 +672,7 @@ pcl::PointCloud<PointType>::Ptr Plan_segmentation(const pcl::PointCloud<PointTyp
   	sor.setMeanK (50);
   	sor.setStddevMulThresh (1.2);
 	sor.filter (*cloud_outliers_filtered);
-
-	pcl::visualization::PCLVisualizer viewer3 ("Cloud Filtered and Extracted");
-	viewer3.addCoordinateSystem(0.3);
-	viewer3.addPointCloud (cloud_outliers_filtered, "after_plan_segm");
 	
-	while (!viewer3.wasStopped ()){
-		viewer3.spinOnce ();
-	}
 
 	return cloud_outliers_filtered;
 }
@@ -694,7 +686,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	geometry_msgs::TransformStamped transformStamped;
 	sensor_msgs::PointCloud2 cloud_world, output, output2;
 	
-	/*
+	/**/
 	pcl::PointCloud<PointType>::Ptr test_cloud(new pcl::PointCloud<PointType>);
 	pcl::PCLPointCloud2 test;
 	pcl_conversions::toPCL(*MScloud, test);
@@ -702,7 +694,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	
 	pcl::visualization::PCLVisualizer viewer3 ("Cloud Filtered and Extracted");
 	viewer3.addCoordinateSystem(0.3);
-	viewer3.addPointCloud (test_cloud, "after_plan_segm");
+	viewer3.addPointCloud (test_cloud, "MScloud");
 	
 	while (!viewer3.wasStopped ()){
 		viewer3.spinOnce ();
@@ -718,7 +710,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 			tf2::doTransform(*MScloud, cloud_world, transformStamped);
 		}else{
 			transformStamped = tfBuffer.lookupTransform("world", "camera_link", ros::Time::now(), timeout);
-			transformStamped.header.frame_id = "world";
+			//transformStamped.header.frame_id = "world";
 			tf2::doTransform(*MScloud, cloud_world, transformStamped);
 		}
 
@@ -746,14 +738,22 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	pcl_conversions::toPCL(cloud_world, cloud_pcl_world);
     pcl::fromPCLPointCloud2(cloud_pcl_world, *temp_cloud);
 
-	ROS_INFO("temp_cloud size : %d", temp_cloud->size());
-	/*
-	pcl::toROSMsg(*temp_cloud, output);
+	//pcl::fromROSMsg(*MScloud.get(), *temp_cloud.get());
+	//pcl::fromROSMsg(*cloud_world, *temp_cloud);
 	
-	pcl::fromROSMsg(*MScloud.get(), *temp_cloud.get());
-	pcl::toROSMsg(*temp_cloud.get(),output );
-	pub.publish(output);
-	*/
+	//pcl::toROSMsg(*temp_cloud, output);
+	//pub.publish(output);
+
+
+	ROS_INFO("temp_cloud size : %d", temp_cloud->size());
+	viewer3.addCoordinateSystem(0.3);
+	viewer3.addPointCloud (temp_cloud, "temp_cloud");
+	while (!viewer3.wasStopped ()){
+		viewer3.spinOnce ();
+	}
+	/**/
+
+	/**/
 	/*
 	// *************************************** Filter on box X,Y *************************
 	// Create the filtering object in X
@@ -787,7 +787,8 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	ROS_INFO("----- Semi cutting table done! -----");
 	/**/
 	// *************************************** Filter Using Segmentation  *************************
-	if(cloud_segment2->size() != 0){
+	  
+	if(temp_cloud->size() == 0){
 		
 		//pcl::toROSMsg(*cloud_segment2.get(),output );
 		//pub.publish(output);
@@ -808,7 +809,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 
 	}else{
 		ROS_INFO("Cloud empty... cannot segmentation...");
-		return;
+		//return;
 	}
 	/*
 	pcl::visualization::PCLVisualizer viewer ("Hypotheses Verification");
