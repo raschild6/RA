@@ -375,7 +375,8 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
                     planning_scene_interface->removeCollisionObjects(object_ids);
                     collision_objects.erase(collision_objects.begin() + j);
                     attached = true;
-                    ros::Duration(10.0).sleep();
+                    ros::Duration(1.0).sleep();
+                    startPosition();
                 }
             }
         }
@@ -386,7 +387,7 @@ void jointStatesCallback(const sensor_msgs::JointState &joint_states_current)
 {
     if (attached)
     {
-
+        /*
         const robot_state::JointModelGroup *joint_model_group = kinematic_model->getJointModelGroup(PLANNING_GROUP);
         const std::vector<std::string> &joint_names = joint_model_group->getJointModelNames();
 
@@ -405,17 +406,32 @@ void jointStatesCallback(const sensor_msgs::JointState &joint_states_current)
 
         //Eigen::Affine3d newState = end_effector_state * tmp_transform;
         Eigen::Affine3d newState = end_effector_state;
+        */
+        move_group->setPoseReferenceFrame("world");
 
+        geometry_msgs::PoseStamped current_pose = move_group->getCurrentPose();
+        /*
+        ROS_INFO("pose of end effector:");
+        ROS_INFO("\t\t- pose = [%f, %f, %f]", current_pose.pose.position.x,
+                 current_pose.pose.position.y,
+                 current_pose.pose.position.z);
+        ROS_INFO("\t\t- orient = [%f, %f, %f, %f]", current_pose.pose.orientation.x,
+                 current_pose.pose.orientation.y,
+                 current_pose.pose.orientation.z,
+                 current_pose.pose.orientation.w);
+        */
         geometry_msgs::Pose pose;
-        pose.position.x = newState.translation().x();
-        pose.position.y = newState.translation().y();
-        pose.position.z = newState.translation().z();
+        pose.position.x = current_pose.pose.position.x;
+        pose.position.y = current_pose.pose.position.y;
+        pose.position.z = current_pose.pose.position.z - 0.1;
 
+        /*
         Eigen::Quaterniond quat(newState.rotation());
         pose.orientation.w = quat.w();
         pose.orientation.x = quat.x();
         pose.orientation.y = quat.y();
         pose.orientation.z = quat.z();
+        */
 
         gazebo_msgs::ModelState model_state;
         // This string results from the spawn_urdf call in the box.launch file argument: -model box
@@ -462,9 +478,9 @@ int main(int argc, char **argv)
 
     startPosition();
     ros::Subscriber sub = n.subscribe("/tag_detections", 1000, chatterCallback);
-    ros::Subscriber joint_states_sub = n.subscribe("/ur5/joint_states", 1000, jointStatesCallback);
+    ros::Subscriber joint_states_sub = n.subscribe("/ur5/joint_states", 1, jointStatesCallback);
     ROS_INFO("Node started and subscribed to /tag_detections");
-    gazebo_model_state_pub = n.advertise<gazebo_msgs::ModelState>("/gazebo/set_model_state", 1000);
+    gazebo_model_state_pub = n.advertise<gazebo_msgs::ModelState>("/gazebo/set_model_state", 1);
     ros::waitForShutdown();
     return 0;
 }
