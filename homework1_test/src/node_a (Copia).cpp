@@ -1378,7 +1378,16 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
     pcl::fromPCLPointCloud2(cloud_pcl_world, *temp_cloud);
 
 	ROS_INFO("temp_cloud size : %d", temp_cloud->size());
-	
+	/**/
+		// -----Open 3D viewer and add point cloud-----
+		pcl::visualization::PCLVisualizer viewer1 ("Cloud Filtered and Extracted");
+		viewer1.addCoordinateSystem(0.3);
+		viewer1.addPointCloud (temp_cloud, "cloud_filtered");
+		
+		while (!viewer1.wasStopped ()){
+			viewer1.spinOnce ();
+		}
+		/**/
 	// *************************************** Filter on box X,Y *************************
 	/**/
 	// Create the filtering object in X
@@ -1736,8 +1745,8 @@ int main(int argc, char **argv){
 	pub2 = n.advertise<sensor_msgs::PointCloud2> ("/my_cloud_inliers", 1);
 
 
-	//ros::Subscriber sub = n.subscribe<sensor_msgs::PointCloud2>("/camera/depth/points", 1, Pcl_camera);
-	ros::Subscriber sub = n.subscribe<sensor_msgs::PointCloud2>("/camera/hd/points", 1, Pcl_camera);	
+	ros::Subscriber sub = n.subscribe<sensor_msgs::PointCloud2>("/camera/depth/points", 1, Pcl_camera);
+	//ros::Subscriber sub = n.subscribe<sensor_msgs::PointCloud2>("/camera/hd/points", 1, Pcl_camera);	
 	//ros::Subscriber sub = n.subscribe<sensor_msgs::PointCloud2>("/kinect_cloud", 1, Pcl_camera);	
 	
 	ros::spin();

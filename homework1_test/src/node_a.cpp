@@ -1,65 +1,6 @@
-#include <sstream>
-#include <iostream>
-#include <thread> 
-#include <fstream>
-#include <stdlib.h>
-#include <tuple>
-#include <cstdlib>
+#include "node_a.h"
 
-#include "ros/ros.h"
-#include "homework1_test/msg_hm1.h"
-
-#include <pcl_ros/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <sensor_msgs/PointCloud2.h>
-
-#include <pcl/ModelCoefficients.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/sample_consensus/method_types.h>
-#include <pcl/sample_consensus/model_types.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/filters/extract_indices.h>
-#include <pcl/segmentation/extract_clusters.h>
-#include <pcl/segmentation/region_growing_rgb.h>
-
-#include <pcl/point_cloud.h>
-#include <pcl/correspondence.h>
-#include <pcl/features/normal_3d_omp.h>
-#include <pcl/features/shot_omp.h>
-#include <pcl/features/board.h>
-#include <pcl/filters/uniform_sampling.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/recognition/cg/hough_3d.h>
-#include <pcl/recognition/cg/geometric_consistency.h>
-#include <pcl/visualization/pcl_visualizer.h>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/kdtree/impl/kdtree_flann.hpp>
-#include <pcl/common/transforms.h>
-#include <pcl/console/parse.h>	
-#include <pcl/filters/passthrough.h>
-#include <pcl/filters/project_inliers.h>
-#include <pcl/surface/convex_hull.h>
-#include <pcl/recognition/hv/hv_go.h>
-#include <pcl/registration/icp.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/surface/gp3.h>
-
-#include <pcl/filters/crop_box.h>
-#include <pcl/visualization/cloud_viewer.h>
-
-#include <tf2_ros/buffer.h>
-#include <tf2/transform_datatypes.h>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_sensor_msgs/tf2_sensor_msgs.h>
-
-#include <pcl/range_image/range_image.h>
-#include <pcl/visualization/range_image_visualizer.h>
-#include <pcl/features/range_image_border_extractor.h>
-
-#include <pcl/filters/conditional_removal.h>
-#include <pcl/filters/statistical_outlier_removal.h>
-
+using namespace Hm1;
 
 typedef pcl::PointXYZRGBA PointType;
 typedef pcl::Normal NormalType;
@@ -67,21 +8,21 @@ typedef pcl::ReferenceFrame RFType;
 typedef pcl::SHOT352 DescriptorType;
 
 struct CloudStyle{
-    double r;
-    double g;
-    double b;
-    double size;
+	double r;
+	double g;
+	double b;
+	double size;
 
-    CloudStyle (double r,
-                double g,
-                double b,
-                double size) :
-        r (r),
-        g (g),
-        b (b),
-        size (size)
-    {
-    }
+	CloudStyle (double r,
+				double g,
+				double b,
+				double size) :
+		r (r),
+		g (g),
+		b (b),
+		size (size)
+	{
+	}
 };
 
 struct CompareIds{
@@ -118,10 +59,43 @@ std::vector<std::tuple<pcl::PointCloud<PointType>::ConstPtr, int>> registered_in
 
 int argc_g; 
 std::string argv_g[1];
-int typeRun = 0;
+int typeRun = 2;
+std_msgs::String link_tf; 
+std_msgs::String name_viewer; 
 
 ros::Publisher pub, pub2;
 
+void normalsVis (pcl::PointCloud<PointType>::ConstPtr cloud, pcl::PointCloud<pcl::Normal>::ConstPtr normals){
+	// --------------------------------------------------------
+	// -----Open 3D viewer and add point cloud and normals-----
+	// --------------------------------------------------------
+	pcl::visualization::PCLVisualizer viewer (name_viewer.data.c_str());
+	viewer.setBackgroundColor (255, 255, 255);
+	pcl::visualization::PointCloudColorHandlerRGBField<PointType> rgb(cloud);
+	viewer.addPointCloud<PointType> (cloud, rgb, "sample cloud");
+	viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
+	viewer.addPointCloudNormals<PointType, pcl::Normal> (cloud, normals, 10, 0.05, "normals");
+	viewer.addCoordinateSystem (1.0);
+	viewer.initCameraParameters ();
+	while (!viewer.wasStopped ()){
+		viewer.spinOnce ();
+	}
+}
+
+void simpleVis (pcl::PointCloud<PointType>::ConstPtr cloud){
+  	// --------------------------------------------
+	// -----Open 3D viewer and add point cloud-----
+	// --------------------------------------------
+	pcl::visualization::PCLVisualizer viewer (name_viewer.data.c_str());
+	viewer.setBackgroundColor (255, 255, 255);
+	viewer.addPointCloud<PointType> (cloud, "sample cloud");
+	viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
+	viewer.addCoordinateSystem (1.0);
+	viewer.initCameraParameters ();
+	while (!viewer.wasStopped ()){
+		viewer.spinOnce ();
+	}
+}
 
 pcl::PointCloud<PointType>::Ptr rotoTraslatePCD(const pcl::PointCloud<PointType>::ConstPtr &cloud){
 	PointType minPt, maxPt;
@@ -530,7 +504,7 @@ std::vector<pcl::PointCloud<PointType>::Ptr> Euclidean_cluster_extraction(const 
   	pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud ();
 	pcl::PointCloud <PointType>::Ptr color_cloud (new pcl::PointCloud<PointType>);
 	pcl::copyPointCloud(*colored_cloud, *color_cloud);
-	/**/
+	/** /
 	pcl::visualization::PCLVisualizer viewer3 ("Cloud Filtered and Extracted");
 	viewer3.addCoordinateSystem(0.3);
 	viewer3.addPointCloud (color_cloud, "cluster_max");
@@ -563,75 +537,131 @@ std::vector<pcl::PointCloud<PointType>::Ptr> Euclidean_cluster_extraction(const 
 	return models_cloud_vector;
 }	
 
-pcl::PointCloud<PointType>::Ptr Plan_segmentation(const pcl::PointCloud<PointType>::ConstPtr &cloud){
+double round_to_n_digits(double x, int n)
+{ 
+       char buff[32];
 
+       sprintf(buff, "%.*g", n, x);
+
+       return atof(buff);
+}
+
+std::vector<pcl::PointCloud<PointType>::Ptr> remove_plane(const pcl::PointCloud<PointType>::ConstPtr &cloud, 
+					pcl::SACSegmentation<PointType> seg, pcl::SACSegmentationFromNormals<PointType, pcl::Normal> seg2,
+					pcl::ExtractIndices<PointType> extract, pcl::ExtractIndices<PointType> extract2, 
+					pcl::NormalEstimation<PointType, pcl::Normal> ne){
+	
 	pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
 	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
 
 	pcl::PointCloud<PointType>::Ptr cloud_temp (new pcl::PointCloud<PointType>);
 	pcl::PointCloud<PointType>::Ptr cloud_outliers (new pcl::PointCloud<PointType>);	
-	pcl::PointCloud<PointType>::Ptr cloud_outliers_filtered (new pcl::PointCloud<PointType>);
 	pcl::PointCloud<PointType>::Ptr cloud_inliers (new pcl::PointCloud<PointType>);
 	pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
-	pcl::PointCloud<pcl::Normal>::Ptr cloud_normals2 (new pcl::PointCloud<pcl::Normal>);
-	
-	// Create the segmentation object
-	pcl::SACSegmentation<PointType> seg;
-	seg.setOptimizeCoefficients (true);
-	seg.setModelType (pcl::SACMODEL_PLANE);
-	seg.setMaxIterations(100);
-	seg.setMethodType (pcl::SAC_RANSAC);
-	seg.setDistanceThreshold (0.0001);
+
 	seg.setInputCloud (cloud);
 	seg.segment (*inliers, *coefficients);
 
 	if (inliers->indices.size () == 0){
 		PCL_ERROR ("Could not estimate a planar model for the given dataset.");
+		return {};
 	}
 
-	pcl::ExtractIndices<PointType> extract;
 	extract.setInputCloud (cloud);
 	extract.setIndices (inliers);
-	extract.setNegative (true);			
 	extract.filter (*cloud_temp);
 
+	ne.setInputCloud (cloud_temp);
+	ne.compute (*cloud_normals);
+
+	name_viewer.data = "Cloud Temp + Normals"; normalsVis(cloud_temp, cloud_normals);
+
+	seg2.setInputCloud (cloud_temp);
+	seg2.setInputNormals (cloud_normals);
+	seg2.segment (*inliers, *coefficients);
+
+	if (inliers->indices.size () == 0){
+		PCL_ERROR ("Could not estimate a perpendicular model for the given dataset.");
+		return {};
+	}
+
+	extract2.setInputCloud (cloud_temp);
+	extract2.setIndices (inliers);
+	extract2.setNegative (true);				// Extract the outliers
+	extract2.filter (*cloud_outliers);			// cloud_outliers contains everything but the plane
+
+	name_viewer.data = "Cloud Outliers"; simpleVis(cloud_outliers);
+
+	extract.setInputCloud (cloud_temp);
+	extract.setIndices (inliers);
+	extract.setNegative (false);			
+	extract.filter (*cloud_inliers);			// cloud_inliers contains only the plane
+	
+	name_viewer.data = "Cloud Inliers"; simpleVis(cloud_inliers);
+
+	return{cloud_outliers, cloud_inliers};
+}
+
+pcl::PointCloud<PointType>::Ptr Plan_segmentation(const pcl::PointCloud<PointType>::ConstPtr &cloud){
+	
+	pcl::PointCloud<PointType>::Ptr cloud_outliers (new pcl::PointCloud<PointType>);	
+	pcl::PointCloud<PointType>::Ptr cloud_inliers (new pcl::PointCloud<PointType>);
+	pcl::PointCloud<PointType>::Ptr cloud_outliers_filtered (new pcl::PointCloud<PointType>);
+	std::vector<pcl::PointCloud<PointType>::Ptr> out_in_cloud;
+
+	// Create the segmentation object
+	pcl::SACSegmentation<PointType> seg;
+	seg.setOptimizeCoefficients (true);
+	seg.setModelType (pcl::SACMODEL_PLANE);
+	seg.setMaxIterations(1000);
+	seg.setMethodType (pcl::SAC_RANSAC);
+	seg.setDistanceThreshold (0.01);
+	
+	pcl::ExtractIndices<PointType> extract;
+	pcl::ExtractIndices<PointType> extract2;
+	extract.setNegative (true);			
+	
 	// Estimate point normals
 	pcl::NormalEstimation<PointType, pcl::Normal> ne;
 	pcl::search::KdTree<PointType>::Ptr tree (new pcl::search::KdTree<PointType> ());
 	ne.setSearchMethod (tree);
-	ne.setInputCloud (cloud_temp);
 	ne.setKSearch (50);
-	ne.compute (*cloud_normals);
 
 	pcl::SACSegmentationFromNormals<PointType, pcl::Normal> seg2; 
 	seg2.setModelType (pcl::SACMODEL_PERPENDICULAR_PLANE);
 	seg2.setMaxIterations(100);
 	seg2.setMethodType (pcl::SAC_RANSAC);
 	seg2.setDistanceThreshold (0.01);
-	seg2.setInputCloud (cloud_temp);
-	seg2.setInputNormals (cloud_normals);
-	seg2.segment (*inliers, *coefficients);
 
-	if (inliers->indices.size () == 0){
-		PCL_ERROR ("Could not estimate a planar model for the given dataset.");
-	}
+	pcl::copyPointCloud(*cloud, *cloud_outliers);
 
-	pcl::ExtractIndices<PointType> extract2;
-	extract2.setInputCloud (cloud_temp);
-	extract2.setIndices (inliers);
-	extract2.setNegative (true);				// Extract the outliers
-	extract2.filter (*cloud_outliers);			// cloud_outliers contains everything but the plane
+	PointType PtInPlane;
+	//PtInPlane.x = -0.22833 ; PtInPlane.y = -0.546301 ; PtInPlane.z = 1.99363;
+	PtInPlane.x = -0.22 ; PtInPlane.y = -0.54 ; PtInPlane.z = 1.99;
+	bool isNotIn = false;
+	do{
 
-	extract.setInputCloud (cloud_temp);
-	extract.setIndices (inliers);
-	extract.setNegative (false);			
-	extract.filter (*cloud_inliers);
-	
-	pcl::ExtractIndices<pcl::Normal> extract_normals;
-	extract_normals.setNegative (true);
-  	extract_normals.setInputCloud (cloud_normals);
-  	extract_normals.setIndices (inliers);
-  	extract_normals.filter (*cloud_normals2);
+		// Iterate and remove all possible plane 
+		out_in_cloud = remove_plane(cloud_outliers, seg, seg2, extract, extract2, ne);
+		if(out_in_cloud.size() > 1){
+			cloud_outliers = out_in_cloud[0];
+			cloud_inliers = out_in_cloud[1];
+
+			for(size_t i = 0; i < cloud_inliers->points.size(); i++)
+				if(round_to_n_digits(cloud_inliers->points[i].x, 2) == PtInPlane.x){
+					ROS_INFO("--- Contain X ---:         %f", cloud_inliers->points[i].x);
+					if(round_to_n_digits(cloud_inliers->points[i].y, 2) == PtInPlane.y){
+						ROS_INFO("--- Contain Y ---:         %f", cloud_inliers->points[i].y);
+						if(round_to_n_digits(cloud_inliers->points[i].z, 2) == PtInPlane.z){
+							ROS_INFO("--- Contain Y ---:         %f", cloud_inliers->points[i].z);
+							isNotIn = false;
+						}
+					}
+				}
+		}
+		
+
+	}while(isNotIn);		//out_in_cloud.size() != 0);					
 
 	PointType minPt, maxPt;
   	pcl::getMinMax3D (*cloud_inliers, minPt, maxPt);
@@ -652,27 +682,30 @@ pcl::PointCloud<PointType>::Ptr Plan_segmentation(const pcl::PointCloud<PointTyp
 	pass.setInputCloud (cloud_outliers);
 	pass.setFilterFieldName ("x");	
 	pass.setFilterLimits (minPt.x, maxPt.x);
-	pass.filter (*cloud_segment);
+	//pass.filter (*cloud_segment);
 
 	// Create the filtering object in Y
 	pass2.setInputCloud (cloud_segment);
 	pass2.setFilterFieldName ("y");
 	pass2.setFilterLimits (minPt.y, maxPt.y);
-	pass2.filter (*cloud_segment2);
+	//pass2.filter (*cloud_segment2);
 
 	// Create the filtering object in Y
+
 	pass3.setInputCloud (cloud_segment2);
 	pass3.setFilterFieldName ("z");	
-	pass3.setFilterLimits (minPt.z, maxPt.z + 0.35);
-	pass3.filter (*cloud_segment3);
+	pass3.setFilterLimits (minPt.z - 0.5, maxPt.z + 0.5);
+	//pass3.filter (*cloud_segment3);
 
-	 // Create the filtering object
+	// Create the filtering object
   	pcl::StatisticalOutlierRemoval<PointType> sor;
-  	sor.setInputCloud (cloud_segment3);
+  	sor.setInputCloud (cloud_outliers);//cloud_segment3);
   	sor.setMeanK (50);
   	sor.setStddevMulThresh (1.2);
 	sor.filter (*cloud_outliers_filtered);
 	
+
+	name_viewer.data = "Cloud Outliers Filtered"; simpleVis(cloud_outliers_filtered);
 
 	return cloud_outliers_filtered;
 }
@@ -685,23 +718,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
     tf2_ros::TransformListener tfListener(tfBuffer);
 	geometry_msgs::TransformStamped transformStamped;
 	sensor_msgs::PointCloud2 cloud_world, output, output2;
-	
-	/**/
-	pcl::PointCloud<PointType>::Ptr test_cloud(new pcl::PointCloud<PointType>);
-	pcl::PCLPointCloud2 test;
-	pcl_conversions::toPCL(*MScloud, test);
-    pcl::fromPCLPointCloud2(test, *test_cloud);
-	
-	pcl::visualization::PCLVisualizer viewer3 ("Cloud Filtered and Extracted");
-	viewer3.addCoordinateSystem(0.3);
-	viewer3.addPointCloud (test_cloud, "MScloud");
-	
-	while (!viewer3.wasStopped ()){
-		viewer3.spinOnce ();
-	}
-	/**/
 
-	
     //ros::Rate rate(30.0);
 	ros::Duration timeout(400.0);
 	try {
@@ -709,7 +726,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 			transformStamped = tfBuffer.lookupTransform("world", "camera_rgb_optical_frame", ros::Time::now(), timeout);
 			tf2::doTransform(*MScloud, cloud_world, transformStamped);
 		}else{
-			transformStamped = tfBuffer.lookupTransform("world", "camera_link", ros::Time::now(), timeout);
+			transformStamped = tfBuffer.lookupTransform(link_tf.data.c_str(), "camera_link", ros::Time::now(), timeout);
 			//transformStamped.header.frame_id = "world";
 			tf2::doTransform(*MScloud, cloud_world, transformStamped);
 		}
@@ -734,26 +751,23 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	pcl::PointCloud<PointType>::Ptr cloud_final (new pcl::PointCloud<PointType>);
 
 	
-	pcl::PCLPointCloud2 cloud_pcl_world;
-	pcl_conversions::toPCL(cloud_world, cloud_pcl_world);
-    pcl::fromPCLPointCloud2(cloud_pcl_world, *temp_cloud);
+	//pcl::PCLPointCloud2 cloud_pcl_world;
+	//pcl_conversions::toPCL(cloud_world, cloud_pcl_world);
+    //pcl::fromPCLPointCloud2(cloud_pcl_world, *temp_cloud);
 
 	//pcl::fromROSMsg(*MScloud.get(), *temp_cloud.get());
 	//pcl::fromROSMsg(*cloud_world, *temp_cloud);
-	
 	//pcl::toROSMsg(*temp_cloud, output);
 	//pub.publish(output);
 
+	
+	pcl::PCLPointCloud2 pcl_pc2;
+    pcl_conversions::toPCL(cloud_world,pcl_pc2);
+    pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
 
 	ROS_INFO("temp_cloud size : %d", temp_cloud->size());
-	viewer3.addCoordinateSystem(0.3);
-	viewer3.addPointCloud (temp_cloud, "temp_cloud");
-	while (!viewer3.wasStopped ()){
-		viewer3.spinOnce ();
-	}
-	/**/
+	name_viewer.data = "Cloud Temp"; simpleVis(temp_cloud);
 
-	/**/
 	/*
 	// *************************************** Filter on box X,Y *************************
 	// Create the filtering object in X
@@ -788,28 +802,25 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	/**/
 	// *************************************** Filter Using Segmentation  *************************
 	  
-	if(temp_cloud->size() == 0){
-		
-		//pcl::toROSMsg(*cloud_segment2.get(),output );
-		//pub.publish(output);
+	if(temp_cloud->size() != 0){
 
 		cloud_filtered = Plan_segmentation(temp_cloud);
 
 		ROS_INFO("----- Plan segmentation done! -----");
+		
+		simpleVis(cloud_filtered);
 
-		if(typeRun == 0){
+		if(typeRun == 0) {
 			z_plane = findZPlane(cloud_filtered);					// REAL works because good clear of isolated points
 		}
 
-		
-			
-		//cloud_extracted = Euclidean_cluster_extraction(cloud_filtered);
+		cloud_extracted = Euclidean_cluster_extraction(cloud_filtered);
 		
 		ROS_INFO("----- Region Growing RGB done! -----");
 
 	}else{
 		ROS_INFO("Cloud empty... cannot segmentation...");
-		//return;
+		return;
 	}
 	/*
 	pcl::visualization::PCLVisualizer viewer ("Hypotheses Verification");
@@ -1007,16 +1018,15 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 
 
 int main(int argc, char **argv){	
+	
 	argc_g = argc;
+	
 	for (int i = 1; i < argc; i++){
         argv_g[i-1] = argv[i];
     }
+	link_tf.data = "camera_link";
 	if(argc_g > 0){
-		typeRun = stoi(argv_g[0]);
-		if(typeRun != 0 && typeRun != 1 && typeRun != 2){
-			ROS_INFO("Wrong value for type of run, choose [ 0 : real, 1 : real-simulated, 2 : simulated ]");
-			return 0;
-		}
+		link_tf.data = argv_g[0].c_str();
 	}
 
 	ros::init(argc, argv, "node_a");
@@ -1045,6 +1055,7 @@ int main(int argc, char **argv){
 	ROS_INFO("     region_growing_setRegionColorThreshold");
 	ROS_INFO("     angular_resolution");
 	ROS_INFO("     setUnseenToMaxRange");
+	ROS_INFO("     LINK CHOOSEN: %s\n", link_tf.data.c_str());
 	ROS_INFO("-------------------------------------------");
 
 	
