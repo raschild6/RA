@@ -1,11 +1,13 @@
 #include "node_a.h"
 
-using namespace Hm1;
+using namespace std;
+using namespace ros;
+using namespace pcl;
 
-typedef pcl::PointXYZRGBA PointType;
-typedef pcl::Normal NormalType;
-typedef pcl::ReferenceFrame RFType;
-typedef pcl::SHOT352 DescriptorType;
+typedef PointXYZRGBA PointType;
+typedef Normal NormalType;
+typedef ReferenceFrame RFType;
+typedef SHOT352 DescriptorType;
 
 struct CloudStyle{
 	double r;
@@ -49,32 +51,245 @@ bool use_hough_ (false);
 bool hv_detect_clutter_ (true);
 
 float angular_resolution = 0.5f;
-pcl::RangeImage::CoordinateFrame coordinate_frame = pcl::RangeImage::CAMERA_FRAME;
+RangeImage::CoordinateFrame coordinate_frame = RangeImage::CAMERA_FRAME;
 bool setUnseenToMaxRange = false;
+									  //100
+int distanceThrs = 10, pointColorThrs = 200, regionColorThrs = 50, minClusterSize = 200, maxClusterSize = 1500;
+double minCutZ = 0, maxCutZ = 1.98; 
+float z_plane = 1.0; 
 
-int distanceThrs = 15, pointColorThrs = 30, regionColorThrs = 15;
-float z_plane = 1.0;
+float setInTh = 0.025;
+float paramsGHV[6] = {0.003, 0.01, 3.0, 0.03, 5.0, 0.05};
 
-std::vector<std::tuple<pcl::PointCloud<PointType>::ConstPtr, int>> registered_instances_tuple;
+vector<tuple<PointCloud<PointType>::ConstPtr, int>> registered_instances_tuple;
 
 int argc_g; 
-std::string argv_g[1];
+string argv_g[100];
 int typeRun = 2;
-std_msgs::String link_tf; 
 std_msgs::String name_viewer; 
 
-ros::Publisher pub, pub2;
+Publisher pub, pub2;
 
-void normalsVis (pcl::PointCloud<PointType>::ConstPtr cloud, pcl::PointCloud<pcl::Normal>::ConstPtr normals){
+int Ksearch = 50;
+int setMaxIter1 = 1000;
+int setMaxIter2 = 1000;
+double setDistThr1 = 0.00001;
+double setDistThr2 = 0.1;
+double yRobot = 0.3, yWall = 0.05;
+
+std_msgs::String link_tf; 
+std_msgs::String nPoints; 
+
+int SAMPLE_POINTS_ = 10000;
+
+// POSSIBLE TRIANGLE : 0.001, 0.001, 0.03, 0.03, 0.01, 10.0, 5.0, 0.18, 0.01, 0.03, 3.0, 0.05 		
+// POSSIBLE CUBE 	 : 0.001, 0.001, 0.03, 0.03, 0.03, 10.0, 5.0, 0.01, 0.01, 0.03, 3.0, 0.05 
+// POSSIBLE HEXAGON  : 0.001, 0.001, 0.03, 0.03, 0.03, 10.0, 5.0, 0.30, 0.01, 0.03, 3.0, 0.05
+
+float paramsHex[12] = 	{0.001, 0.001, 0.03, 0.03, 0.03, 10.0, 5.0, 0.01, 0.01, 0.03, 3.0, 0.05}, 
+	paramsCube[12] = 	{0.001, 0.001, 0.03, 0.03, 0.03, 10.0, 5.0, 0.01, 0.01, 0.03, 3.0, 0.05}, 
+	paramsTrian[12] = 	{0.001, 0.001, 0.03, 0.03, 0.03, 10.0, 5.0, 0.005, 0.01, 0.03, 3.0, 0.05};
+
+
+// ----- FAST TRIANGULATION ----- */
+/*
+double uniform_deviate (int seed){
+  double ran = seed * (1.0 / (RAND_MAX + 1.0));
+  return ran;
+}
+
+void randomPointTriangle (float a1, float a2, float a3, float b1, float b2, float b3, float c1, float c2, float c3,
+              		      float r1, float r2, Eigen::Vector3f& p){
+	float r1sqr = std::sqrt (r1);
+	float OneMinR1Sqr = (1 - r1sqr);
+	float OneMinR2 = (1 - r2);
+	a1 *= OneMinR1Sqr;
+	a2 *= OneMinR1Sqr;
+	a3 *= OneMinR1Sqr;
+	b1 *= OneMinR2;
+	b2 *= OneMinR2;
+	b3 *= OneMinR2;
+	c1 = r1sqr * (r2 * c1 + b1) + a1;
+	c2 = r1sqr * (r2 * c2 + b2) + a2;
+	c3 = r1sqr * (r2 * c3 + b3) + a3;
+	p[0] = c1;
+	p[1] = c2;
+	p[2] = c3;
+}
+
+void randPSurface (vtkPolyData * polydata, std::vector<double> * cumulativeAreas, double totalArea, Eigen::Vector3f& p, bool calcNormal, Eigen::Vector3f& n, bool calcColor, Eigen::Vector3f& c){
+	float r = static_cast<float> (uniform_deviate (rand ()) * totalArea);
+
+	std::vector<double>::iterator low = std::lower_bound (cumulativeAreas->begin (), cumulativeAreas->end (), r);
+	vtkIdType el = vtkIdType (low - cumulativeAreas->begin ());
+
+	double A[3], B[3], C[3];
+	vtkIdType npts = 0;
+	vtkIdType *ptIds = nullptr;
+	polydata->GetCellPoints (el, npts, ptIds);
+	polydata->GetPoint (ptIds[0], A);
+	polydata->GetPoint (ptIds[1], B);
+	polydata->GetPoint (ptIds[2], C);
+	if (calcNormal){
+		// OBJ: Vertices are stored in a counter-clockwise order by default
+		Eigen::Vector3f v1 = Eigen::Vector3f (A[0], A[1], A[2]) - Eigen::Vector3f (C[0], C[1], C[2]);
+		Eigen::Vector3f v2 = Eigen::Vector3f (B[0], B[1], B[2]) - Eigen::Vector3f (C[0], C[1], C[2]);
+		n = v1.cross (v2);
+		n.normalize ();
+	}
+	float r1 = static_cast<float> (uniform_deviate (rand ()));
+	float r2 = static_cast<float> (uniform_deviate (rand ()));
+	randomPointTriangle (float (A[0]), float (A[1]), float (A[2]),
+						float (B[0]), float (B[1]), float (B[2]),
+						float (C[0]), float (C[1]), float (C[2]), r1, r2, p);
+
+	if (calcColor){
+		vtkUnsignedCharArray *const colors = vtkUnsignedCharArray::SafeDownCast (polydata->GetPointData ()->GetScalars ());
+		if (colors && colors->GetNumberOfComponents () == 3){
+			double cA[3], cB[3], cC[3];
+			colors->GetTuple (ptIds[0], cA);
+			colors->GetTuple (ptIds[1], cB);
+			colors->GetTuple (ptIds[2], cC);
+
+			randomPointTriangle (float (cA[0]), float (cA[1]), float (cA[2]),
+								float (cB[0]), float (cB[1]), float (cB[2]),
+								float (cC[0]), float (cC[1]), float (cC[2]), r1, r2, c);
+		}
+		else
+		{
+			static bool printed_once = false;
+			if (!printed_once)
+				PCL_WARN ("Mesh has no vertex colors, or vertex colors are not RGB!");
+			printed_once = true;
+		}
+	}
+}
+
+void uniform_sampling (vtkSmartPointer<vtkPolyData> polydata, std::size_t n_samples, bool calc_normal, bool calc_color, pcl::PointCloud<pcl::PointXYZRGBNormal> & cloud_out){
+	polydata->BuildCells ();
+	vtkSmartPointer<vtkCellArray> cells = polydata->GetPolys ();
+
+	double p1[3], p2[3], p3[3], totalArea = 0;
+	std::vector<double> cumulativeAreas (cells->GetNumberOfCells (), 0);
+	vtkIdType npts = 0, *ptIds = nullptr;
+	std::size_t cellId = 0;
+	for (cells->InitTraversal (); cells->GetNextCell (npts, ptIds); cellId++){
+		polydata->GetPoint (ptIds[0], p1);
+		polydata->GetPoint (ptIds[1], p2);
+		polydata->GetPoint (ptIds[2], p3);
+		totalArea += vtkTriangle::TriangleArea (p1, p2, p3);
+		cumulativeAreas[cellId] = totalArea;
+	}
+
+	cloud_out.points.resize (n_samples);
+	cloud_out.width = static_cast<std::uint32_t> (n_samples);
+	cloud_out.height = 1;
+
+	for (std::size_t i = 0; i < n_samples; i++){
+		Eigen::Vector3f p;
+		Eigen::Vector3f n (0, 0, 0);
+		Eigen::Vector3f c (0, 0, 0);
+		randPSurface (polydata, &cumulativeAreas, totalArea, p, calc_normal, n, calc_color, c);
+		cloud_out.points[i].x = p[0];
+		cloud_out.points[i].y = p[1];
+		cloud_out.points[i].z = p[2];
+		if (calc_normal){
+			cloud_out.points[i].normal_x = n[0];
+			cloud_out.points[i].normal_y = n[1];
+			cloud_out.points[i].normal_z = n[2];
+		}
+		if (calc_color){
+			cloud_out.points[i].r = static_cast<std::uint8_t>(c[0]);
+			cloud_out.points[i].g = static_cast<std::uint8_t>(c[1]);
+			cloud_out.points[i].b = static_cast<std::uint8_t>(c[2]);
+		}
+	}
+}
+
+pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr FastTriangulation(const pcl::PointCloud<PointType>::ConstPtr &cloud_ptr){
+
+	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::PointCloud<PointType>::Ptr cloud_temp (new pcl::PointCloud<PointType>);
+	*cloud_temp = *cloud_ptr;
+	pcl::copyPointCloud(*cloud_temp, *cloud);
+
+	// Normal estimation
+	pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;
+	pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
+	pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+	tree->setInputCloud (cloud);
+	n.setInputCloud (cloud);
+	n.setSearchMethod (tree);
+	n.setKSearch (10);
+	n.compute (*normals);
+	//* normals should not contain the point normals + surface curvatures
+
+	// Concatenate the XYZ and normal fields*
+	pcl::PointCloud<pcl::PointNormal>::Ptr cloud_with_normals (new pcl::PointCloud<pcl::PointNormal>);
+	pcl::concatenateFields (*cloud, *normals, *cloud_with_normals);
+	//* cloud_with_normals = cloud + normals
+
+	// Create search tree*
+	pcl::search::KdTree<pcl::PointNormal>::Ptr tree2 (new pcl::search::KdTree<pcl::PointNormal>);
+	tree2->setInputCloud (cloud_with_normals);
+
+	// Initialize objects
+	pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
+	pcl::PolygonMesh triangles;
+
+	// Set the maximum distance between connected points (maximum edge length)
+	gp3.setSearchRadius (0.025);
+
+	// Set typical values for the parameters
+	gp3.setMu (2.5);
+	gp3.setMaximumNearestNeighbors (100);
+	gp3.setMaximumSurfaceAngle(M_PI/4); // 45 degrees
+	gp3.setMinimumAngle(M_PI/18); // 10 degrees
+	gp3.setMaximumAngle(2*M_PI/3); // 120 degrees
+	gp3.setNormalConsistency(false);
+
+	// Get result
+	gp3.setInputCloud (cloud_with_normals);
+	gp3.setSearchMethod (tree2);
+	gp3.reconstruct (triangles);
+
+	// Additional vertex information
+	std::vector<int> parts = gp3.getPartIDs();
+	std::vector<int> states = gp3.getPointStates();
+
+
+
+	vtkSmartPointer<vtkPolyData> polydata1 = vtkSmartPointer<vtkPolyData>::New ();
+	pcl::io::mesh2vtk (triangles, polydata1);
+	
+	vtkSmartPointer<vtkTriangleFilter> triangleFilter = vtkSmartPointer<vtkTriangleFilter>::New ();
+	triangleFilter->SetInputData (polydata1);
+	triangleFilter->Update ();
+
+	vtkSmartPointer<vtkPolyDataMapper> triangleMapper = vtkSmartPointer<vtkPolyDataMapper>::New ();
+	triangleMapper->SetInputConnection (triangleFilter->GetOutputPort ());
+	triangleMapper->Update ();
+	polydata1 = triangleMapper->GetInput ();
+
+	bool write_normals = true, write_colors = false;
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+	uniform_sampling (polydata1, SAMPLE_POINTS_, write_normals, write_colors, *cloud_1);
+
+	return cloud_1;
+}
+
+*/
+
+void normalsVis (PointCloud<PointType>::ConstPtr cloud, PointCloud<Normal>::ConstPtr normals){
 	// --------------------------------------------------------
 	// -----Open 3D viewer and add point cloud and normals-----
 	// --------------------------------------------------------
-	pcl::visualization::PCLVisualizer viewer (name_viewer.data.c_str());
+	visualization::PCLVisualizer viewer (name_viewer.data.c_str());
 	viewer.setBackgroundColor (255, 255, 255);
-	pcl::visualization::PointCloudColorHandlerRGBField<PointType> rgb(cloud);
+	visualization::PointCloudColorHandlerRGBField<PointType> rgb(cloud);
 	viewer.addPointCloud<PointType> (cloud, rgb, "sample cloud");
-	viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
-	viewer.addPointCloudNormals<PointType, pcl::Normal> (cloud, normals, 10, 0.05, "normals");
+	viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
+	viewer.addPointCloudNormals<PointType, Normal> (cloud, normals, 10, 0.05, "normals");
 	viewer.addCoordinateSystem (1.0);
 	viewer.initCameraParameters ();
 	while (!viewer.wasStopped ()){
@@ -82,14 +297,14 @@ void normalsVis (pcl::PointCloud<PointType>::ConstPtr cloud, pcl::PointCloud<pcl
 	}
 }
 
-void simpleVis (pcl::PointCloud<PointType>::ConstPtr cloud){
+void simpleVis (PointCloud<PointType>::ConstPtr cloud){
   	// --------------------------------------------
 	// -----Open 3D viewer and add point cloud-----
 	// --------------------------------------------
-	pcl::visualization::PCLVisualizer viewer (name_viewer.data.c_str());
+	visualization::PCLVisualizer viewer (name_viewer.data.c_str());
 	viewer.setBackgroundColor (255, 255, 255);
 	viewer.addPointCloud<PointType> (cloud, "sample cloud");
-	viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
+	viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
 	viewer.addCoordinateSystem (1.0);
 	viewer.initCameraParameters ();
 	while (!viewer.wasStopped ()){
@@ -97,9 +312,9 @@ void simpleVis (pcl::PointCloud<PointType>::ConstPtr cloud){
 	}
 }
 
-pcl::PointCloud<PointType>::Ptr rotoTraslatePCD(const pcl::PointCloud<PointType>::ConstPtr &cloud){
+PointCloud<PointType>::Ptr rotoTraslatePCD(const PointCloud<PointType>::ConstPtr &cloud){
 	PointType minPt, maxPt;
-  	pcl::getMinMax3D (*cloud, minPt, maxPt);
+  	getMinMax3D (*cloud, minPt, maxPt);
 	
 	Eigen::Affine3f trasform = Eigen::Affine3f::Identity();
 	if(minPt.z > z_plane){
@@ -107,35 +322,70 @@ pcl::PointCloud<PointType>::Ptr rotoTraslatePCD(const pcl::PointCloud<PointType>
 	}else{
 		trasform.translation() << 0.0, 0.0, (z_plane - minPt.z);
 	}
-
+	
 	//trasform.rotate(Eigen::AngleAxisf(M_PI/4, Eigen::Vector3f::UnitZ()));
 	trasform.matrix();
 
-	pcl::PointCloud<PointType>::Ptr temp_cloud (new pcl::PointCloud<PointType>());
-	pcl::transformPointCloud(*cloud, *temp_cloud, trasform);
+	PointCloud<PointType>::Ptr temp_cloud (new PointCloud<PointType>());
+	transformPointCloud(*cloud, *temp_cloud, trasform);
 
 	return temp_cloud;			
 }
 
-float findZPlane(const pcl::PointCloud<PointType>::ConstPtr &cloud){
+float findZPlane(const PointCloud<PointType>::ConstPtr &cloud){
 	PointType minPt, maxPt;
-  	pcl::getMinMax3D (*cloud, minPt, maxPt);
+  	getMinMax3D (*cloud, minPt, maxPt);
 	ROS_INFO("Minimum Z Point of Plan Segmentation : %f", minPt.z);
 	return minPt.z;
 }
 
-int ChooseColorMesh(const pcl::PointCloud<PointType>::ConstPtr &cloud, int i_cloud){
+int ChooseColorMesh(const PointCloud<PointType>::ConstPtr &cloud, int i_cloud){
 	int r = 0, g = 0, b = 0;
 	int size_cloud = cloud->points.size();
 	
+	//name_viewer.data = "Cloud Colored Number: " + to_string(i_cloud); simpleVis(cloud);
+
 	for(int i = 0; i < cloud->points.size(); i++){
-		std::vector<int> rgb_temp_vector = {cloud->points[i].r, cloud->points[i].g, cloud->points[i].b};
-		std::vector<int> rgb_vector = {cloud->points[i].r, cloud->points[i].g, cloud->points[i].b};
-		std::sort(rgb_vector.begin(),rgb_vector.end(), std::greater<int>());
+		r += cloud->points[i].r;
+		g += cloud->points[i].g;
+		b += cloud->points[i].b;
+	}
+
+	r = r / cloud->points.size();
+	g = g / cloud->points.size();
+	b = b / cloud->points.size();
+
+	ROS_INFO("%d cloud, rgb color : (%d, %d, %d) ", i_cloud, r,g,b);
+
+	if(r < 80 && g < 80 && b < 80){			// discard (table or noise)
+		ROS_INFO("%d ........... Discarded ...........",i_cloud);
+		return 5; 			
+	}else if(r >= 80 && g >= 80 && b <= 80){
+		ROS_INFO("%d ........... Yellow ...........",i_cloud);
+		return 3;
+	}else if(r >= 80 && g <= 80 && b <= 80){
+		ROS_INFO("%d ........... Red ...........",i_cloud);
+		return 0;
+	}else if(r <= 80 && g >= 80 && b <= 80){
+		ROS_INFO("%d ........... Green ...........",i_cloud);
+		return 1;
+	}else if(r <= 80 && g <= 80 && b >= 80){
+		ROS_INFO("%d ........... Blue ...........",i_cloud);
+		return 2;
+	}else{
+		ROS_INFO("%d ........... Try all possibility ...........",i_cloud);
+		return 4;							
+	}
+	// REAL color
+	/** 
+	for(int i = 0; i < cloud->points.size(); i++){
+		vector<int> rgb_temp_vector = {cloud->points[i].r, cloud->points[i].g, cloud->points[i].b};
+		vector<int> rgb_vector = {cloud->points[i].r, cloud->points[i].g, cloud->points[i].b};
+		sort(rgb_vector.begin(),rgb_vector.end(), greater<int>());
 		if((rgb_vector[0] - rgb_vector[1] > 35) && (rgb_vector[0] - rgb_vector[2] > 35)){
 
-			std::vector<int>::iterator it = std::find(rgb_temp_vector.begin(), rgb_temp_vector.end(), rgb_vector[0]);
-			int index = std::distance(rgb_temp_vector.begin(), it);
+			vector<int>::iterator it = find(rgb_temp_vector.begin(), rgb_temp_vector.end(), rgb_vector[0]);
+			int index = distance(rgb_temp_vector.begin(), it);
 			if(index == 0)
 				r += cloud->points[i].r * 10;
 			if(index == 1)
@@ -153,13 +403,13 @@ int ChooseColorMesh(const pcl::PointCloud<PointType>::ConstPtr &cloud, int i_clo
 
 	ROS_INFO("%d cloud, rgb color : (%d, %d, %d) ", i_cloud, r,g,b);
 	
-	std::vector<int> rgb_temp_vector = {r, g, b};
-	std::vector<int> rgb_vector = {r, g, b};
-	std::sort(rgb_vector.begin(),rgb_vector.end(), std::greater<int>());
+	vector<int> rgb_temp_vector = {r, g, b};
+	vector<int> rgb_vector = {r, g, b};
+	sort(rgb_vector.begin(),rgb_vector.end(), greater<int>());
 	if((rgb_vector[0] - rgb_vector[1] > 500000) && (rgb_vector[0] - rgb_vector[2] > 500000)){								// find red or green
 
-		std::vector<int>::iterator it = std::find(rgb_temp_vector.begin(), rgb_temp_vector.end(), rgb_vector[0]);
-		int index = std::distance(rgb_temp_vector.begin(), it);
+		vector<int>::iterator it = find(rgb_temp_vector.begin(), rgb_temp_vector.end(), rgb_vector[0]);
+		int index = distance(rgb_temp_vector.begin(), it);
 		if(index == 0){
 			ROS_INFO("%d ........... Red ...........",i_cloud);
 			return 0;
@@ -178,19 +428,20 @@ int ChooseColorMesh(const pcl::PointCloud<PointType>::ConstPtr &cloud, int i_clo
 		ROS_INFO("%d ........... Try all possibility ...........",i_cloud);
 		return 4;
 	}
+	/**/
 }
 
-double computeCloudResolution (const pcl::PointCloud<PointType>::ConstPtr &cloud){
+double computeCloudResolution (const PointCloud<PointType>::ConstPtr &cloud){
 	double res = 0.0;
 	int n_points = 0;
 	int nres;
-	std::vector<int> indices (2);
-	std::vector<float> sqr_distances (2);
-	pcl::search::KdTree<PointType> tree;
+	vector<int> indices (2);
+	vector<float> sqr_distances (2);
+	search::KdTree<PointType> tree;
 	tree.setInputCloud (cloud);
 
-	for (std::size_t i = 0; i < cloud->size (); ++i){
-		if (! std::isfinite ((*cloud)[i].x)){
+	for (size_t i = 0; i < cloud->size (); ++i){
+		if (! isfinite ((*cloud)[i].x)){
 			continue;
 		}
 		//Considering the second neighbor since the first is the point itself.
@@ -206,30 +457,34 @@ double computeCloudResolution (const pcl::PointCloud<PointType>::ConstPtr &cloud
 	return res;
 }
 
-void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneConst, std::string filename, int i_cloud, float params[]){
-	std::ofstream result;
-	std::size_t posI = filename.find("meshes/");
-	std::string sTemp = filename.substr(posI+7);
-	std::string nameMesh = sTemp.substr(0, sTemp.length()-4);
-	std::string namefile = "/home/michele/catkin_ws/src/metapackages/homework1_test/test/CG_" + std::to_string(i_cloud) + "_" + nameMesh.c_str() + ".txt"; 
+void Correspondence_Grouping (const PointCloud<PointType>::ConstPtr &sceneConst, string filename, int i_cloud, float params[]){
+	ofstream result;
+	size_t posI = filename.find("meshes/");
+	string sTemp = filename.substr(posI+7);
+	string nameMesh = sTemp.substr(0, sTemp.length()-4);
+	auto end = chrono::system_clock::now();
+    time_t end_time = chrono::system_clock::to_time_t(end);
+	string datetime = ctime(&end_time);
+	replace(datetime.begin(), datetime.end(), ' ', '_');
+	string namefile = "/home/michele/catkin_ws/src/homework1_test/test/CG_" + to_string(i_cloud) + "_" + nameMesh.c_str() + "_" + datetime + ".txt"; 
 	result.open (namefile);
 	result << " ---- " << filename << " ---- " << "\n\n";
 
-	pcl::PointCloud<PointType>::Ptr scene (new pcl::PointCloud<PointType> ());
-	pcl::PointCloud<PointType>::Ptr model (new pcl::PointCloud<PointType> ());
+	PointCloud<PointType>::Ptr scene (new PointCloud<PointType> ());
+	PointCloud<PointType>::Ptr model (new PointCloud<PointType> ());
 
 	*scene = *sceneConst;
 
-	if (pcl::io::loadPCDFile<PointType> (filename, *model) == -1){
+	if (io::loadPCDFile<PointType> (filename, *model) == -1){
     	PCL_ERROR("Couldn't read .pcd file model");
   	}
 
-	pcl::PointCloud<PointType>::Ptr model_keypoints (new pcl::PointCloud<PointType> ());
-	pcl::PointCloud<PointType>::Ptr scene_keypoints (new pcl::PointCloud<PointType> ());
-	pcl::PointCloud<NormalType>::Ptr model_normals (new pcl::PointCloud<NormalType> ());
-	pcl::PointCloud<NormalType>::Ptr scene_normals (new pcl::PointCloud<NormalType> ());
-	pcl::PointCloud<DescriptorType>::Ptr model_descriptors (new pcl::PointCloud<DescriptorType> ());
-	pcl::PointCloud<DescriptorType>::Ptr scene_descriptors (new pcl::PointCloud<DescriptorType> ());
+	PointCloud<PointType>::Ptr model_keypoints (new PointCloud<PointType> ());
+	PointCloud<PointType>::Ptr scene_keypoints (new PointCloud<PointType> ());
+	PointCloud<NormalType>::Ptr model_normals (new PointCloud<NormalType> ());
+	PointCloud<NormalType>::Ptr scene_normals (new PointCloud<NormalType> ());
+	PointCloud<DescriptorType>::Ptr model_descriptors (new PointCloud<DescriptorType> ());
+	PointCloud<DescriptorType>::Ptr scene_descriptors (new PointCloud<DescriptorType> ());
 
 	//
 	//  Set up resolution invariance
@@ -263,11 +518,12 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	result << "Occlusion threshold size:       " << hv_occlusion_th_ << "\n";
 	result << "Clutter radius:                 " << hv_rad_clutter_ << "\n";
 	result << "Regularizer value:              " << hv_regularizer_ << "\n";
+	result << "Normals radius:                 " << hv_rad_normals_ << "\n";
 
 	//
 	//  Compute Normals
 	//
-	pcl::NormalEstimationOMP<PointType, NormalType> norm_est;
+	NormalEstimationOMP<PointType, NormalType> norm_est;
 	norm_est.setKSearch (10);
 	norm_est.setInputCloud (model);
 	norm_est.compute (*model_normals);
@@ -278,7 +534,7 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	//
 	//  Downsample Clouds to Extract keypoints
 	//
-	pcl::UniformSampling<PointType> uniform_sampling;
+	UniformSampling<PointType> uniform_sampling;
 	uniform_sampling.setInputCloud (model);
 	uniform_sampling.setRadiusSearch (model_ss_);
 	uniform_sampling.filter (*model_keypoints);
@@ -292,7 +548,7 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	//
 	//  Compute Descriptor for keypoints
 	//
-	pcl::SHOTEstimationOMP<PointType, NormalType, DescriptorType> descr_est;
+	SHOTEstimationOMP<PointType, NormalType, DescriptorType> descr_est;
 	descr_est.setRadiusSearch (descr_rad_);
 
 	descr_est.setInputCloud (model_keypoints);
@@ -305,21 +561,21 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	descr_est.setSearchSurface (scene);
 	descr_est.compute (*scene_descriptors);
 
-	pcl::CorrespondencesPtr model_scene_corrs (new pcl::Correspondences ());
-	pcl::KdTreeFLANN<DescriptorType> match_search;
+	CorrespondencesPtr model_scene_corrs (new Correspondences ());
+	KdTreeFLANN<DescriptorType> match_search;
 	match_search.setInputCloud (model_descriptors);
-	std::vector<int> model_good_keypoints_indices;
-	std::vector<int> scene_good_keypoints_indices;
+	vector<int> model_good_keypoints_indices;
+	vector<int> scene_good_keypoints_indices;
 
-	for (std::size_t i = 0; i < scene_descriptors->size (); ++i){
-		std::vector<int> neigh_indices (1);
-		std::vector<float> neigh_sqr_dists (1);
-		if (!std::isfinite (scene_descriptors->at (i).descriptor[0])){  //skipping NaNs
+	for (size_t i = 0; i < scene_descriptors->size (); ++i){
+		vector<int> neigh_indices (1);
+		vector<float> neigh_sqr_dists (1);
+		if (!isfinite (scene_descriptors->at (i).descriptor[0])){  //skipping NaNs
 			continue;
 		}
 		int found_neighs = match_search.nearestKSearch (scene_descriptors->at (i), 1, neigh_indices, neigh_sqr_dists);
 		if (found_neighs == 1 && neigh_sqr_dists[0] < 0.45f){
-			pcl::Correspondence corr (neigh_indices[0], static_cast<int> (i), neigh_sqr_dists[0]);
+			Correspondence corr (neigh_indices[0], static_cast<int> (i), neigh_sqr_dists[0]);
 			model_scene_corrs->push_back (corr);
 			model_good_keypoints_indices.push_back (corr.index_query);
 			scene_good_keypoints_indices.push_back (corr.index_match);
@@ -328,27 +584,27 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	result << "model_good_keypoints_indices selected: " << model_good_keypoints_indices.size() << "\n";
 	result << "scene_good_keypoints_indices selected: " << scene_good_keypoints_indices.size() << "\n";
 
-	pcl::PointCloud<PointType>::Ptr model_good_kp (new pcl::PointCloud<PointType> ());
-	pcl::PointCloud<PointType>::Ptr scene_good_kp (new pcl::PointCloud<PointType> ());
-	pcl::copyPointCloud (*model_keypoints, model_good_keypoints_indices, *model_good_kp);
-	pcl::copyPointCloud (*scene_keypoints, scene_good_keypoints_indices, *scene_good_kp);
+	PointCloud<PointType>::Ptr model_good_kp (new PointCloud<PointType> ());
+	PointCloud<PointType>::Ptr scene_good_kp (new PointCloud<PointType> ());
+	copyPointCloud (*model_keypoints, model_good_keypoints_indices, *model_good_kp);
+	copyPointCloud (*scene_keypoints, scene_good_keypoints_indices, *scene_good_kp);
 	result << "Correspondences found: " << model_scene_corrs->size () << "\n";
 
 	//
 	//  Actual Clustering
 	//
-	std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > rototranslations;
-	std::vector<pcl::Correspondences> clustered_corrs;
+	vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > rototranslations;
+	vector<Correspondences> clustered_corrs;
 
 	//  Using Hough3D
 	if (use_hough_){
 		//
 		//  Compute (Keypoints) Reference Frames only for Hough
 		//
-		pcl::PointCloud<RFType>::Ptr model_rf (new pcl::PointCloud<RFType> ());
-		pcl::PointCloud<RFType>::Ptr scene_rf (new pcl::PointCloud<RFType> ());
+		PointCloud<RFType>::Ptr model_rf (new PointCloud<RFType> ());
+		PointCloud<RFType>::Ptr scene_rf (new PointCloud<RFType> ());
 
-		pcl::BOARDLocalReferenceFrameEstimation<PointType, NormalType, RFType> rf_est;
+		BOARDLocalReferenceFrameEstimation<PointType, NormalType, RFType> rf_est;
 		rf_est.setFindHoles (true);
 		rf_est.setRadiusSearch (rf_rad_);
 
@@ -363,7 +619,7 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 		rf_est.compute (*scene_rf);
 
 		//  Clustering
-		pcl::Hough3DGrouping<PointType, PointType, RFType, RFType> clusterer;
+		Hough3DGrouping<PointType, PointType, RFType, RFType> clusterer;
 		clusterer.setHoughBinSize (cg_size_);
 		clusterer.setHoughThreshold (cg_thresh_);
 		clusterer.setUseInterpolation (true);
@@ -379,7 +635,7 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 		clusterer.recognize (rototranslations, clustered_corrs);
 	}
 	else{ // Using GeometricConsistency
-		pcl::GeometricConsistencyGrouping<PointType, PointType> gc_clusterer;
+		GeometricConsistencyGrouping<PointType, PointType> gc_clusterer;
 		gc_clusterer.setGCSize (cg_size_);
 		gc_clusterer.setGCThreshold (cg_thresh_);
 
@@ -395,26 +651,26 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	/**
    	* Generates clouds for each instances found 
    	*/
-  	std::vector<pcl::PointCloud<PointType>::ConstPtr> instances;
+  	vector<PointCloud<PointType>::ConstPtr> instances;
 
-	for (std::size_t i = 0; i < rototranslations.size (); ++i){
-		pcl::PointCloud<PointType>::Ptr rotated_model (new pcl::PointCloud<PointType> ());
-		pcl::transformPointCloud (*model, *rotated_model, rototranslations[i]);
+	for (size_t i = 0; i < rototranslations.size (); ++i){
+		PointCloud<PointType>::Ptr rotated_model (new PointCloud<PointType> ());
+		transformPointCloud (*model, *rotated_model, rototranslations[i]);
 		instances.push_back (rotated_model);
 	}
 
 	/**
 	 * ICP
 	 */
-	std::vector<pcl::PointCloud<PointType>::ConstPtr> registered_instances;
+	vector<PointCloud<PointType>::ConstPtr> registered_instances;
 	result << "--------- ICP ---------" << "\n";
-	for (std::size_t i = 0; i < rototranslations.size (); ++i){
-		pcl::IterativeClosestPoint<PointType, PointType> icp;
+	for (size_t i = 0; i < rototranslations.size (); ++i){
+		IterativeClosestPoint<PointType, PointType> icp;
 		icp.setMaximumIterations (icp_max_iter_);
 		icp.setMaxCorrespondenceDistance (icp_corr_distance_);
 		icp.setInputTarget (scene);
 		icp.setInputSource (instances[i]);
-		pcl::PointCloud<PointType>::Ptr registered (new pcl::PointCloud<PointType>);
+		PointCloud<PointType>::Ptr registered (new PointCloud<PointType>);
 		icp.align (*registered);
 		registered_instances.push_back (registered);
 		result << "Instance " << i << "\n";
@@ -431,9 +687,9 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	 * Hypothesis Verification
 	 */
 	result << "--- Hypotheses Verification ---" << "\n";
-	std::vector<bool> hypotheses_mask;  // Mask Vector to identify positive hypotheses
+	vector<bool> hypotheses_mask;  // Mask Vector to identify positive hypotheses
 
-	pcl::GlobalHypothesesVerification<PointType, PointType> GoHv;
+	GlobalHypothesesVerification<PointType, PointType> GoHv;
 	
 	ROS_INFO("----- cloud : %d %s - instances : %d -----", i_cloud, nameMesh.c_str(), registered_instances.size());
 	if(registered_instances.size() > 1){
@@ -464,11 +720,11 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	result << "-------------------------------";
 
 	bool findOne = false;
-	for (std::size_t i = 0; i < registered_instances.size (); ++i){
+	for (size_t i = 0; i < registered_instances.size (); ++i){
 		if (hypotheses_mask.size() != 0 && hypotheses_mask[i] ){
 			findOne = true;
-			std::tuple<pcl::PointCloud<PointType>::ConstPtr, int> temp_tuple;
-			temp_tuple = std::make_tuple(registered_instances[i], i_cloud);
+			tuple<PointCloud<PointType>::ConstPtr, int> temp_tuple;
+			temp_tuple = make_tuple(registered_instances[i], i_cloud);
 			registered_instances_tuple.push_back(temp_tuple);
 			result.close();
 		}
@@ -482,47 +738,40 @@ void Correspondence_Grouping (const pcl::PointCloud<PointType>::ConstPtr &sceneC
 	}
 }
 
-std::vector<pcl::PointCloud<PointType>::Ptr> Euclidean_cluster_extraction(const pcl::PointCloud<PointType>::ConstPtr &cloud_filtered){
+vector<PointCloud<PointType>::Ptr> Euclidean_cluster_extraction(const PointCloud<PointType>::ConstPtr &cloud_filtered){
 
-  	pcl::PointCloud <pcl::PointXYZRGB>::Ptr temp1 (new pcl::PointCloud<pcl::PointXYZRGB>);
-	pcl::copyPointCloud(*cloud_filtered, *temp1);
+  	PointCloud <PointXYZRGB>::Ptr temp1 (new PointCloud<PointXYZRGB>);
+	copyPointCloud(*cloud_filtered, *temp1);
 
-	pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGB>);
+	search::KdTree<PointXYZRGB>::Ptr tree (new search::KdTree<PointXYZRGB>);
 	tree->setInputCloud (temp1);
 
-	std::vector<pcl::PointIndices> cluster_indices;
-	pcl::RegionGrowingRGB<pcl::PointXYZRGB> reg;
+	vector<PointIndices> cluster_indices;
+	RegionGrowingRGB<PointXYZRGB> reg;
 	reg.setInputCloud (temp1);
 	reg.setSearchMethod (tree);
 	reg.setDistanceThreshold (distanceThrs);			//25
 	reg.setPointColorThreshold (pointColorThrs);		//27 - default 1225
 	reg.setRegionColorThreshold (regionColorThrs);		//27 - default 10
-	reg.setMinClusterSize (1500);
-	reg.setMaxClusterSize (25000);
+	reg.setMinClusterSize (minClusterSize);
+	reg.setMaxClusterSize (maxClusterSize);
 	reg.extract (cluster_indices);
 
-  	pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud ();
-	pcl::PointCloud <PointType>::Ptr color_cloud (new pcl::PointCloud<PointType>);
-	pcl::copyPointCloud(*colored_cloud, *color_cloud);
-	/** /
-	pcl::visualization::PCLVisualizer viewer3 ("Cloud Filtered and Extracted");
-	viewer3.addCoordinateSystem(0.3);
-	viewer3.addPointCloud (color_cloud, "cluster_max");
+  	PointCloud <PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud ();
+	PointCloud <PointType>::Ptr color_cloud (new PointCloud<PointType>);
+	copyPointCloud(*colored_cloud, *color_cloud);
 	
-	while (!viewer3.wasStopped ()){
-		viewer3.spinOnce ();
-	}
-	/**/
+	//name_viewer.data = "Cloud Colored"; simpleVis(color_cloud);
 
-	std::vector<pcl::PointCloud<PointType>::Ptr> models_cloud_vector;
+	vector<PointCloud<PointType>::Ptr> models_cloud_vector;
 
 	int j = 0;
-	for ( std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it){
-		pcl::PointCloud<PointType>::Ptr cloud_temp (new pcl::PointCloud<PointType>);
+	for ( vector<PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it){
+		PointCloud<PointType>::Ptr cloud_temp (new PointCloud<PointType>);
 
 		ROS_INFO("cloud_vector size : %d, indices number : %d", models_cloud_vector.size(), it->indices.size());
 
-		for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit){
+		for (vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit){
 			cloud_temp->points.push_back (cloud_filtered->points[*pit]);
 		}
 		
@@ -537,27 +786,18 @@ std::vector<pcl::PointCloud<PointType>::Ptr> Euclidean_cluster_extraction(const 
 	return models_cloud_vector;
 }	
 
-double round_to_n_digits(double x, int n)
-{ 
-       char buff[32];
-
-       sprintf(buff, "%.*g", n, x);
-
-       return atof(buff);
-}
-
-std::vector<pcl::PointCloud<PointType>::Ptr> remove_plane(const pcl::PointCloud<PointType>::ConstPtr &cloud, 
-					pcl::SACSegmentation<PointType> seg, pcl::SACSegmentationFromNormals<PointType, pcl::Normal> seg2,
-					pcl::ExtractIndices<PointType> extract, pcl::ExtractIndices<PointType> extract2, 
-					pcl::NormalEstimation<PointType, pcl::Normal> ne){
+vector<PointCloud<PointType>::Ptr> remove_plane(const PointCloud<PointType>::ConstPtr &cloud, 
+					SACSegmentation<PointType> seg, SACSegmentationFromNormals<PointType, Normal> seg2,
+					ExtractIndices<PointType> extract, ExtractIndices<PointType> extract2, 
+					NormalEstimation<PointType, Normal> ne){
 	
-	pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
-	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+	ModelCoefficients::Ptr coefficients (new ModelCoefficients);
+	PointIndices::Ptr inliers (new PointIndices);
 
-	pcl::PointCloud<PointType>::Ptr cloud_temp (new pcl::PointCloud<PointType>);
-	pcl::PointCloud<PointType>::Ptr cloud_outliers (new pcl::PointCloud<PointType>);	
-	pcl::PointCloud<PointType>::Ptr cloud_inliers (new pcl::PointCloud<PointType>);
-	pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
+	PointCloud<PointType>::Ptr cloud_temp (new PointCloud<PointType>);
+	PointCloud<PointType>::Ptr cloud_outliers (new PointCloud<PointType>);	
+	PointCloud<PointType>::Ptr cloud_inliers (new PointCloud<PointType>);
+	PointCloud<Normal>::Ptr cloud_normals (new PointCloud<Normal>);
 
 	seg.setInputCloud (cloud);
 	seg.segment (*inliers, *coefficients);
@@ -574,7 +814,7 @@ std::vector<pcl::PointCloud<PointType>::Ptr> remove_plane(const pcl::PointCloud<
 	ne.setInputCloud (cloud_temp);
 	ne.compute (*cloud_normals);
 
-	name_viewer.data = "Cloud Temp + Normals"; normalsVis(cloud_temp, cloud_normals);
+	//name_viewer.data = "Cloud Temp + Normals"; normalsVis(cloud_temp, cloud_normals);
 
 	seg2.setInputCloud (cloud_temp);
 	seg2.setInputNormals (cloud_normals);
@@ -590,81 +830,92 @@ std::vector<pcl::PointCloud<PointType>::Ptr> remove_plane(const pcl::PointCloud<
 	extract2.setNegative (true);				// Extract the outliers
 	extract2.filter (*cloud_outliers);			// cloud_outliers contains everything but the plane
 
-	name_viewer.data = "Cloud Outliers"; simpleVis(cloud_outliers);
+	//name_viewer.data = "Cloud Outliers"; simpleVis(cloud_outliers);
 
 	extract.setInputCloud (cloud_temp);
 	extract.setIndices (inliers);
 	extract.setNegative (false);			
 	extract.filter (*cloud_inliers);			// cloud_inliers contains only the plane
 	
-	name_viewer.data = "Cloud Inliers"; simpleVis(cloud_inliers);
+	//name_viewer.data = "Cloud Inliers"; simpleVis(cloud_inliers);
 
 	return{cloud_outliers, cloud_inliers};
 }
 
-pcl::PointCloud<PointType>::Ptr Plan_segmentation(const pcl::PointCloud<PointType>::ConstPtr &cloud){
-	
-	pcl::PointCloud<PointType>::Ptr cloud_outliers (new pcl::PointCloud<PointType>);	
-	pcl::PointCloud<PointType>::Ptr cloud_inliers (new pcl::PointCloud<PointType>);
-	pcl::PointCloud<PointType>::Ptr cloud_outliers_filtered (new pcl::PointCloud<PointType>);
-	std::vector<pcl::PointCloud<PointType>::Ptr> out_in_cloud;
+PointCloud<PointType>::Ptr Plan_segmentation(const PointCloud<PointType>::ConstPtr &cloud){
+	PointCloud<PointType>::Ptr cloud_outliers (new PointCloud<PointType>);	
+	PointCloud<PointType>::Ptr cloud_outliers_down (new PointCloud<PointType>);	
+	PointCloud<PointType>::Ptr cloud_inliers (new PointCloud<PointType>);
+	PointCloud<PointType>::Ptr cloud_outliers_filtered (new PointCloud<PointType>);
+	vector<PointCloud<PointType>::Ptr> out_in_cloud;
 
 	// Create the segmentation object
-	pcl::SACSegmentation<PointType> seg;
+	SACSegmentation<PointType> seg;
 	seg.setOptimizeCoefficients (true);
-	seg.setModelType (pcl::SACMODEL_PLANE);
-	seg.setMaxIterations(1000);
-	seg.setMethodType (pcl::SAC_RANSAC);
-	seg.setDistanceThreshold (0.01);
+	seg.setModelType (SACMODEL_PLANE);
+	seg.setMaxIterations(setMaxIter1);
+	seg.setMethodType (SAC_RANSAC);
+	seg.setDistanceThreshold (setDistThr1);
 	
-	pcl::ExtractIndices<PointType> extract;
-	pcl::ExtractIndices<PointType> extract2;
+	ExtractIndices<PointType> extract;
+	ExtractIndices<PointType> extract2;
 	extract.setNegative (true);			
 	
 	// Estimate point normals
-	pcl::NormalEstimation<PointType, pcl::Normal> ne;
-	pcl::search::KdTree<PointType>::Ptr tree (new pcl::search::KdTree<PointType> ());
+	NormalEstimation<PointType, Normal> ne;
+	search::KdTree<PointType>::Ptr tree (new search::KdTree<PointType> ());
 	ne.setSearchMethod (tree);
-	ne.setKSearch (50);
+	ne.setKSearch (Ksearch);
 
-	pcl::SACSegmentationFromNormals<PointType, pcl::Normal> seg2; 
-	seg2.setModelType (pcl::SACMODEL_PERPENDICULAR_PLANE);
-	seg2.setMaxIterations(100);
-	seg2.setMethodType (pcl::SAC_RANSAC);
-	seg2.setDistanceThreshold (0.01);
+	SACSegmentationFromNormals<PointType, Normal> seg2; 
+	seg2.setModelType (SACMODEL_PERPENDICULAR_PLANE);
+	seg2.setMaxIterations(setMaxIter2);
+	seg2.setMethodType (SAC_RANSAC);
+	seg2.setDistanceThreshold (setDistThr2);
+	seg2.setDistanceFromOrigin (1.99);
 
-	pcl::copyPointCloud(*cloud, *cloud_outliers);
+	copyPointCloud(*cloud, *cloud_outliers);		// use if you want to run next code in loop
 
-	PointType PtInPlane;
-	//PtInPlane.x = -0.22833 ; PtInPlane.y = -0.546301 ; PtInPlane.z = 1.99363;
-	PtInPlane.x = -0.22 ; PtInPlane.y = -0.54 ; PtInPlane.z = 1.99;
-	bool isNotIn = false;
-	do{
+	//Point in Plane : x = -0.22833 ; y = -0.546301 ; z = 1.99363;
 
-		// Iterate and remove all possible plane 
-		out_in_cloud = remove_plane(cloud_outliers, seg, seg2, extract, extract2, ne);
-		if(out_in_cloud.size() > 1){
-			cloud_outliers = out_in_cloud[0];
-			cloud_inliers = out_in_cloud[1];
+	// Create the filtering object in Z
+	pcl::PassThrough<PointType> pass3;
+	pcl::PassThrough<PointType> pass4;
+	// ---------MIN Z----------:         1.983194
+	// ---------MAX Z----------:         1.997834
+	pass3.setInputCloud (cloud_outliers);
+	pass3.setFilterFieldName ("z");	
+	pass3.setFilterLimits (maxCutZ, maxCutZ + 0.3);
+	pass3.filter (*cloud_outliers_down);
+	
+	pass4.setInputCloud (cloud_outliers);
+	pass4.setFilterFieldName ("z");	
+	pass4.setFilterLimits (minCutZ, maxCutZ);
+	pass4.filter (*cloud_outliers);
 
-			for(size_t i = 0; i < cloud_inliers->points.size(); i++)
-				if(round_to_n_digits(cloud_inliers->points[i].x, 2) == PtInPlane.x){
-					ROS_INFO("--- Contain X ---:         %f", cloud_inliers->points[i].x);
-					if(round_to_n_digits(cloud_inliers->points[i].y, 2) == PtInPlane.y){
-						ROS_INFO("--- Contain Y ---:         %f", cloud_inliers->points[i].y);
-						if(round_to_n_digits(cloud_inliers->points[i].z, 2) == PtInPlane.z){
-							ROS_INFO("--- Contain Y ---:         %f", cloud_inliers->points[i].z);
-							isNotIn = false;
-						}
-					}
-				}
-		}
-		
+	//name_viewer.data = "Cloud Outliers Down"; simpleVis(cloud_outliers_down);
+	//name_viewer.data = "Cloud Outliers Up"; simpleVis(cloud_outliers);
+	
+	out_in_cloud = remove_plane(cloud_outliers_down, seg, seg2, extract, extract2, ne);
+	if(out_in_cloud.size() > 1){
+		//cloud_outliers = out_in_cloud[0];
+		cloud_inliers = out_in_cloud[1];
+	}else{
+		return cloud_outliers_filtered;
+	}
 
-	}while(isNotIn);		//out_in_cloud.size() != 0);					
+	// Create the filtering object
+	pcl::StatisticalOutlierRemoval<PointType> sor;
+	sor.setInputCloud (cloud_inliers);
+	sor.setMeanK (20);
+	sor.setStddevMulThresh (1.0);
+	sor.filter (*cloud_inliers);
+
+	//name_viewer.data = "Cloud Inliers Filtered"; simpleVis(cloud_inliers);
+	//name_viewer.data = "Cloud Outliers"; simpleVis(cloud_outliers);
 
 	PointType minPt, maxPt;
-  	pcl::getMinMax3D (*cloud_inliers, minPt, maxPt);
+  	getMinMax3D (*cloud_inliers, minPt, maxPt);
 	
 	ROS_INFO("---------MIN X----------:         %f", minPt.x);
 	ROS_INFO("---------MAX X----------:         %f", maxPt.x);
@@ -672,40 +923,45 @@ pcl::PointCloud<PointType>::Ptr Plan_segmentation(const pcl::PointCloud<PointTyp
 	ROS_INFO("---------MAX Y----------:         %f", maxPt.y);
 	ROS_INFO("---------MIN Z----------:         %f", minPt.z);
 	ROS_INFO("---------MAX Z----------:         %f", maxPt.z);
-
-	pcl::PointCloud<PointType>::Ptr cloud_segment (new pcl::PointCloud<PointType>);
-	pcl::PointCloud<PointType>::Ptr cloud_segment2 (new pcl::PointCloud<PointType>);
-	pcl::PointCloud<PointType>::Ptr cloud_segment3 (new pcl::PointCloud<PointType>);
+	
 	pcl::PassThrough<PointType> pass;
 	pcl::PassThrough<PointType> pass2;
-	pcl::PassThrough<PointType> pass3;
+
+	// Create the filtering object in X
+	// ---------MIN X----------:         -0.553821
+	// ---------MAX X----------:         0.467484
+	pass.setInputCloud (cloud_outliers);	
+	pass.setFilterFieldName ("x");	
+	pass.setFilterLimits (-0.6, 0.6);
+	pass.filter (*cloud_outliers);
+
 	pass.setInputCloud (cloud_outliers);
 	pass.setFilterFieldName ("x");	
 	pass.setFilterLimits (minPt.x, maxPt.x);
-	//pass.filter (*cloud_segment);
+	pass.filter (*cloud_outliers);
 
 	// Create the filtering object in Y
-	pass2.setInputCloud (cloud_segment);
+	// ---------MIN Y----------:         -0.806813
+	// ---------MAX Y----------:         0.347452
+	pass2.setInputCloud (cloud_outliers);
 	pass2.setFilterFieldName ("y");
-	pass2.setFilterLimits (minPt.y, maxPt.y);
-	//pass2.filter (*cloud_segment2);
+	pass2.setFilterLimits (-0.9, 0.5);
+	pass2.filter (*cloud_outliers);
 
-	// Create the filtering object in Y
-
-	pass3.setInputCloud (cloud_segment2);
-	pass3.setFilterFieldName ("z");	
-	pass3.setFilterLimits (minPt.z - 0.5, maxPt.z + 0.5);
-	//pass3.filter (*cloud_segment3);
+	pass2.setInputCloud (cloud_outliers);
+	pass2.setFilterFieldName ("y");
+	pass2.setFilterLimits (minPt.y + yRobot, maxPt.y - yWall);
+	pass2.filter (*cloud_outliers);
 
 	// Create the filtering object
-  	pcl::StatisticalOutlierRemoval<PointType> sor;
-  	sor.setInputCloud (cloud_outliers);//cloud_segment3);
-  	sor.setMeanK (50);
-  	sor.setStddevMulThresh (1.2);
-	sor.filter (*cloud_outliers_filtered);
+  	StatisticalOutlierRemoval<PointType> sor2;
+  	sor2.setInputCloud (cloud_outliers);
+  	sor2.setMeanK (50);
+  	sor2.setStddevMulThresh (1.2);
+	sor2.filter (*cloud_outliers_filtered);
 	
 
-	name_viewer.data = "Cloud Outliers Filtered"; simpleVis(cloud_outliers_filtered);
+	//name_viewer.data = "Cloud Outliers Filtered"; simpleVis(cloud_outliers_filtered);
 
 	return cloud_outliers_filtered;
 }
@@ -719,8 +975,8 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	geometry_msgs::TransformStamped transformStamped;
 	sensor_msgs::PointCloud2 cloud_world, output, output2;
 
-    //ros::Rate rate(30.0);
-	ros::Duration timeout(400.0);
+    //Rate rate(30.0);
+	Duration timeout(400.0);
 	try {
 		if(typeRun == 1){
 			transformStamped = tfBuffer.lookupTransform("world", "camera_rgb_optical_frame", ros::Time::now(), timeout);
@@ -741,78 +997,46 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 		return;
 	}
 
-	// *************************************** Put Trasformed_PointCloud on PCL::PointCloud *************************
-	pcl::PointCloud<PointType>::Ptr temp_cloud(new pcl::PointCloud<PointType>);
-	pcl::PointCloud<PointType>::Ptr cloud_segment (new pcl::PointCloud<PointType>);
-	pcl::PointCloud<PointType>::Ptr cloud_segment2 (new pcl::PointCloud<PointType>);
-	pcl::PointCloud<PointType>::Ptr cloud_filtered (new pcl::PointCloud<PointType>);
-	std::vector<pcl::PointCloud<PointType>::Ptr> cloud_extracted;
-	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_triang (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-	pcl::PointCloud<PointType>::Ptr cloud_final (new pcl::PointCloud<PointType>);
+	// *************************************** Put Trasformed_PointCloud on PointCloud *************************
+	PointCloud<PointType>::Ptr temp_cloud(new PointCloud<PointType>);
+	PointCloud<PointType>::Ptr cloud_segment (new PointCloud<PointType>);
+	PointCloud<PointType>::Ptr cloud_segment2 (new PointCloud<PointType>);
+	PointCloud<PointType>::Ptr cloud_filtered (new PointCloud<PointType>);
+	vector<PointCloud<PointType>::Ptr> cloud_extracted;
+	PointCloud<PointXYZRGBNormal>::Ptr cloud_triang (new PointCloud<PointXYZRGBNormal>);
+	PointCloud<PointType>::Ptr cloud_final (new PointCloud<PointType>);
 
 	
-	//pcl::PCLPointCloud2 cloud_pcl_world;
+	//PCLPointCloud2 cloud_pcl_world;
 	//pcl_conversions::toPCL(cloud_world, cloud_pcl_world);
-    //pcl::fromPCLPointCloud2(cloud_pcl_world, *temp_cloud);
-
-	//pcl::fromROSMsg(*MScloud.get(), *temp_cloud.get());
-	//pcl::fromROSMsg(*cloud_world, *temp_cloud);
-	//pcl::toROSMsg(*temp_cloud, output);
+    //fromPCLPointCloud2(cloud_pcl_world, *temp_cloud);
+	//fromROSMsg(*MScloud.get(), *temp_cloud.get());
+	//fromROSMsg(*cloud_world, *temp_cloud);
+	//toROSMsg(*temp_cloud, output);
 	//pub.publish(output);
 
 	
-	pcl::PCLPointCloud2 pcl_pc2;
+	PCLPointCloud2 pcl_pc2;
     pcl_conversions::toPCL(cloud_world,pcl_pc2);
-    pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
+    fromPCLPointCloud2(pcl_pc2,*temp_cloud);
 
 	ROS_INFO("temp_cloud size : %d", temp_cloud->size());
-	name_viewer.data = "Cloud Temp"; simpleVis(temp_cloud);
+	//name_viewer.data = "Cloud Temp"; simpleVis(temp_cloud);
 
-	/*
-	// *************************************** Filter on box X,Y *************************
-	// Create the filtering object in X
-	pcl::PassThrough<PointType> pass;
-	pcl::PassThrough<PointType> pass2;
-	pass.setInputCloud (temp_cloud);
-	pass.setFilterFieldName ("x");
-	if(typeRun == 0){
-		pass.setFilterLimits (-0.55, +0.5);
-	}else if(typeRun == 1){
-		pass.setFilterLimits (-0.4, 0.7);	
-	}else{
-		pass.setFilterLimits (-1.0, +1.0);
-		//pass.setFilterLimits (-3.6, +3.6);
-	}
-	pass.filter (*cloud_segment);
-
-	// Create the filtering object in Y
-	pass2.setInputCloud (cloud_segment);
-	pass2.setFilterFieldName ("y");
-	if(typeRun == 0){
-		pass2.setFilterLimits (-0.97, -0.2);
-	}else if(typeRun == 1){
-		pass2.setFilterLimits (-1.42, -0.7);	
-	}else{
-		pass2.setFilterLimits (-2.2, +2.2);
-		//pass2.setFilterLimits (-4.0, +4.0);
-	}
-	pass2.filter (*cloud_segment2);
-	
-	ROS_INFO("----- Semi cutting table done! -----");
-	/**/
 	// *************************************** Filter Using Segmentation  *************************
 	  
 	if(temp_cloud->size() != 0){
-
-		cloud_filtered = Plan_segmentation(temp_cloud);
-
-		ROS_INFO("----- Plan segmentation done! -----");
 		
-		simpleVis(cloud_filtered);
-
-		if(typeRun == 0) {
-			z_plane = findZPlane(cloud_filtered);					// REAL works because good clear of isolated points
+		
+		cloud_filtered = Plan_segmentation(temp_cloud);
+	
+		if(cloud_filtered->size() == 0){
+			ROS_ERROR("----- Plan segmentation fail! return -----");
+			return;
 		}
+		ROS_INFO("----- Plan segmentation done! -----");
+
+		// if(typeRun == 0) z_plane = findZPlane(cloud_filtered);					// REAL works because good clear of isolated points
 
 		cloud_extracted = Euclidean_cluster_extraction(cloud_filtered);
 		
@@ -822,83 +1046,113 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 		ROS_INFO("Cloud empty... cannot segmentation...");
 		return;
 	}
-	/*
+	/**/
 	pcl::visualization::PCLVisualizer viewer ("Hypotheses Verification");
-	viewer.removeAllShapes();
-	viewer.removeAllPointClouds();
+	//viewer.removeAllShapes();
+	//viewer.removeAllPointClouds();
 	viewer.setBackgroundColor (1, 1, 1);
-	viewer.addPointCloud (cloud_segment2, "scene_cloud");
-
-	// POSSIBLE TRIANGLE : 0.001 0.001 0.03 0.03 0.01 10.0 5.0 0.18 0.01 0.03 3.0 0.05
-	// POSSIBLE CUBE 	 : 0.001 0.001 0.03 0.03 0.03 10.0 5.0 0.3 0.01 0.03 3.0 0.05
-	// POSSIBLE HEXAGON  : 0.001 0.001 0.03 0.03 0.03 10.0 5.0 0.3 0.01 0.03 3.0 0.05
+	//viewer.addPointCloud (cloud_filtered, "scene_cloud");
 	
-	float paramsHex[12] = 	{0.001, 0.001, 0.03, 0.03, 0.03, 10.0, 5.0, 0.3, 0.01, 0.03, 3.0, 0.05}, 
-		  paramsCube[12] = 	{0.001, 0.001, 0.03, 0.03, 0.035, 10.0, 5.0, 0.29, 0.01, 0.03, 3.0, 0.05}, 
-		  paramsTrian[12] = {0.001, 0.001, 0.03, 0.03, 0.035, 10.0, 5.0, 0.35, 0.01, 0.03, 3.0, 0.05};
-	
-	std::vector<std::thread> threads;
+	vector<thread> threads;
 	for(int i = 0; i < cloud_extracted.size(); i++){
 		int color = 5; 	//default condition
-		std::string filename;
+		string filename;
 		color = ChooseColorMesh(cloud_extracted[i],i);
 		switch (color){
 			case (0):		// red
 				if(typeRun == 2){
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/cube_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/triangle_centered_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
+					
+					/* For using FastTriangulation
+					cloud_triang = FastTriangulation(cloud_extracted[i]);
+					copyPointCloud(*cloud_triang, *cloud_final);
+					threads.push_back(thread (Correspondence_Grouping, cloud_final, filename, i, paramsTrian));
+					*/
+					
+					PointType minPt, maxPt;
+					getMinMax3D (*cloud_extracted[i], minPt, maxPt);
+					if(minPt.z >= 1.9){
+						filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
+						threads.push_back(thread (Correspondence_Grouping, cloud_extracted[i], filename, i, paramsTrian));
+					}else{
+						/* Remove useless points for the cube */
+						pcl::PassThrough<PointType> pass;
+						pass.setInputCloud (cloud_extracted[i]);	
+						pass.setFilterFieldName ("z");	
+						pass.setFilterLimits (minPt.z, minPt.z + 0.1);
+						pass.filter (*cloud_extracted[i]);
+						filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
+						threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
+						}
 				}else{
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/cube_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/triangle_centered_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
 				}
 			break;
 			case (1):		// green
 				if(typeRun == 2){
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/triangle_centered_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping, cloud_extracted[i], filename, i, paramsTrian));
 				}else{
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/triangle_centered_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
 				}
 			break;
 			case (2):		// blue
 				if(typeRun == 2){
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/cube_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
+					/* Remove useless points for the cube */
+					PointType minPt, maxPt;
+					getMinMax3D (*cloud_extracted[i], minPt, maxPt);
+					pcl::PassThrough<PointType> pass;
+					pass.setInputCloud (cloud_extracted[i]);	
+					pass.setFilterFieldName ("z");	
+					pass.setFilterLimits (minPt.z, minPt.z + 0.1);
+					pass.filter (*cloud_extracted[i]);
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
 				}else{
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/cube_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
 				}
 			break;
 			case (3):		// yellow
 				if(typeRun == 2){
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/hexagon_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));
+					// Remove useless points
+					PointType minPt, maxPt;
+					getMinMax3D (*cloud_extracted[i], minPt, maxPt);
+					// Create the filtering object in Z
+					pcl::PassThrough<PointType> pass;
+					pass.setInputCloud (cloud_extracted[i]);	
+					pass.setFilterFieldName ("z");	
+					pass.setFilterLimits (minPt.z, minPt.z + 0.1);
+					pass.filter (*cloud_extracted[i]);
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/hexagon_cut_20k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));
 				}else{
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/hexagon_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));	
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/hexagon_cut_20k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));	
 				}
 			break;
 			case (4):		// try all mesh
 				if(typeRun == 2){
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/cube_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/triangle_centered_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/hexagon_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/hexagon_cut_20k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));
 				}else{
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/cube_all_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/triangle_centered_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
-					filename = "/home/michele/catkin_ws/src/metapackages/homework1_test/meshes/hexagon_2k.pcd";
-					threads.push_back(std::thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));	
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsTrian));
+					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/hexagon_cut_20k.pcd";
+					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));	
 				}
+			break;
+			case (5):
+				continue;
 			break;
 			default:
 				ROS_INFO("Cannot continue with Correspondence Grouping!!");
@@ -906,7 +1160,11 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 			break;
 		}
 	}
-	for (std::thread & th : threads){
+	if(threads.size() == 0){ 	// no object for recognition
+		ROS_INFO("If no object on table: Cannot continue with Correspondence Grouping! Or PointCloud could be in greyscale: wait next iteration..");
+		return;
+	}
+	for (thread & th : threads){
 		if (th.joinable()){
 			th.join();
 		}
@@ -914,54 +1172,66 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 
 	ROS_INFO(" -------------------------- Thread created : %d", threads.size());
 	
-	std::vector<pcl::PointCloud<PointType>::ConstPtr> registered_instances_global;
-	std::vector<int> i_instances_global;
-	for(std::tuple<pcl::PointCloud<PointType>::ConstPtr, int> t : registered_instances_tuple){
-		registered_instances_global.push_back(std::get<0>(t));
-		i_instances_global.push_back(std::get<1>(t));
-		ROS_INFO("Indices of global pointcloud found : %d", std::get<1>(t));
+	vector<PointCloud<PointType>::ConstPtr> registered_instances_global;
+	vector<int> i_instances_global;
+	for(tuple<PointCloud<PointType>::ConstPtr, int> t : registered_instances_tuple){
+		registered_instances_global.push_back(get<0>(t));
+		i_instances_global.push_back(get<1>(t));
+		ROS_INFO("Indices of global pointcloud found : %d", get<1>(t));
 	}
 	ROS_INFO("registered_instances size : %d --- instances :%d", registered_instances_global.size(),i_instances_global.size());
 	
 	ROS_INFO("------- Finding multi mesh on the same model -------");
-	std::vector<int> iToStay;
+	vector<int> iToStay;
+	float temp_setInTh = setInTh;
 	for(int i = 0; i < cloud_extracted.size(); i++){
-		std::vector<int> temp_index;
-		std::vector<int> temp_index_hv;
-		std::vector<int>::iterator iter = i_instances_global.begin();
-		while ((iter = std::find_if(iter, i_instances_global.end(), CompareIds(i))) != i_instances_global.end()){
-			temp_index.push_back(std::distance(i_instances_global.begin(), iter));
+		vector<int> temp_index;
+		vector<int> temp_index_hv;
+		vector<int>::iterator iter = i_instances_global.begin();
+		while ((iter = find_if(iter, i_instances_global.end(), CompareIds(i))) != i_instances_global.end()){
+			temp_index.push_back(distance(i_instances_global.begin(), iter));
 			iter++;
 		}
 		
 		if(temp_index.size() > 1){
-			std::vector<pcl::PointCloud<PointType>::ConstPtr> registered_instances;
+			vector<PointCloud<PointType>::ConstPtr> registered_instances;
 			for(int index : temp_index){
 				registered_instances.push_back(registered_instances_global[index]);
 			}
 
-			float setInTh = 0.3;
 			bool findMod = false;
+			setInTh = temp_setInTh;
 			while(!(temp_index_hv.size() == 1) && setInTh < 0.4){
 				findMod = false;
-				setInTh += 0.01;
+				setInTh += 0.005;
 				temp_index_hv.clear();
 				// Hypothesis Verification
 				ROS_INFO( "--- Hypotheses Verification for model --- setInlierThreshold : %f", setInTh);
-				std::vector<bool> hypotheses_mask;  // Mask Vector to identify positive hypotheses
+				vector<bool> hypotheses_mask;  // Mask Vector to identify positive hypotheses
 
-				pcl::GlobalHypothesesVerification<PointType, PointType> GoHv;
+				GlobalHypothesesVerification<PointType, PointType> GoHv;
 
 				GoHv.setSceneCloud (cloud_extracted[i]);  // Scene Cloud
 				GoHv.addModels (registered_instances, true);  //Models to verify
-				GoHv.setResolution (0.003f); // resolution
+				GoHv.setResolution (paramsGHV[0]); // resolution
 				GoHv.setInlierThreshold (setInTh);
-				GoHv.setOcclusionThreshold (0.01f);
-				GoHv.setRegularizer (3.0);
-				GoHv.setRadiusClutter (0.03f);
-				GoHv.setClutterRegularizer (5.0f);
+				GoHv.setOcclusionThreshold (paramsGHV[1]);
+				GoHv.setRegularizer (paramsGHV[2]);
+				GoHv.setRadiusClutter (paramsGHV[3]);
+				GoHv.setClutterRegularizer (paramsGHV[4]);
 				GoHv.setDetectClutter (hv_detect_clutter_);
-				GoHv.setRadiusNormals (0.05f);
+				GoHv.setRadiusNormals (paramsGHV[5]);
+
+				/* Backup values parameters 
+					GoHv.setResolution (0.003f); // resolution
+					GoHv.setInlierThreshold (setInTh);
+					GoHv.setOcclusionThreshold (0.01f);
+					GoHv.setRegularizer (3.0);
+					GoHv.setRadiusClutter (0.03f);
+					GoHv.setClutterRegularizer (5.0f);
+					GoHv.setDetectClutter (hv_detect_clutter_);
+					GoHv.setRadiusNormals (0.05f);
+				*/
 
 				GoHv.verify ();
 				GoHv.getMask (hypotheses_mask);  // i-element TRUE if hvModels[i] verifies hypotheses
@@ -995,27 +1265,30 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	}
 
 	ROS_INFO("registered_instances_global size %d", registered_instances_global.size());
-	for (std::size_t i = 0; i < registered_instances_global.size (); ++i){
-		if(std::find(iToStay.begin(), iToStay.end(), i) != iToStay.end()){
+	for (size_t i = 0; i < registered_instances_global.size (); ++i){
+		if(find(iToStay.begin(), iToStay.end(), i) != iToStay.end()){
 			ROS_INFO("Pointcloud added : %d", i);
 
 			// RotoTranslate models found
-			pcl::PointCloud<PointType>::Ptr cloud_rotoTrans (new pcl::PointCloud<PointType>);
+			PointCloud<PointType>::Ptr cloud_rotoTrans (new PointCloud<PointType>);
 			*cloud_rotoTrans = *registered_instances_global[i];
 			//cloud_rotoTrans = rotoTraslatePCD(registered_instances_global[i]);
 
-			CloudStyle clusterStyle = style_black;
-			pcl::visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (cloud_rotoTrans, clusterStyle.r, clusterStyle.g, clusterStyle.b);
-			viewer.addPointCloud (cloud_rotoTrans, instance_color_handler,  std::to_string(i));
-			viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, clusterStyle.size, std::to_string(i));
+			CloudStyle clusterStyle = style_red;
+			visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (cloud_rotoTrans, clusterStyle.r, clusterStyle.g, clusterStyle.b);
+			viewer.addPointCloud (cloud_rotoTrans, instance_color_handler,  to_string(i));
+			viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, clusterStyle.size, to_string(i));
 		}
 	}
+	CloudStyle clusterStyle2 = style_black;
+	visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (temp_cloud, clusterStyle2.r, clusterStyle2.g, clusterStyle2.b);
+	viewer.addPointCloud (temp_cloud, instance_color_handler,  to_string(registered_instances_global.size ()));
+	viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, clusterStyle2.size, to_string(registered_instances_global.size ()));
 	while (!viewer.wasStopped ()){
 		viewer.spinOnce ();
 	}
 	/**/
 }
-
 
 int main(int argc, char **argv){	
 	
@@ -1025,53 +1298,142 @@ int main(int argc, char **argv){
         argv_g[i-1] = argv[i];
     }
 	link_tf.data = "camera_link";
-	if(argc_g > 0){
-		link_tf.data = argv_g[0].c_str();
+	nPoints.data = "cut_10k";
+	if(argc_g > 1){
+
+		/* Set parames hypothesis verification for multi-mesh on same model * /
+		paramsGHV[0] = atof(argv_g[0].c_str());
+		setInTh 	 = atof(argv_g[1].c_str());
+		paramsGHV[1] = atof(argv_g[2].c_str());
+		paramsGHV[2] = atof(argv_g[3].c_str());
+		paramsGHV[3] = atof(argv_g[4].c_str());
+		paramsGHV[4] = atof(argv_g[5].c_str());
+		paramsGHV[5] = atof(argv_g[6].c_str());
+		/**/
+		/* Set parames triangle * /
+		paramsTrian[0] = atof(argv_g[0].c_str());
+		paramsTrian[1] = atof(argv_g[1].c_str());
+		paramsTrian[2] = atof(argv_g[2].c_str());
+		paramsTrian[3] = atof(argv_g[3].c_str());
+		paramsTrian[4] = atof(argv_g[4].c_str());
+		paramsTrian[5] = atof(argv_g[5].c_str());
+		paramsTrian[6] = atof(argv_g[6].c_str());
+		paramsTrian[7] = atof(argv_g[7].c_str());
+		paramsTrian[8] = atof(argv_g[8].c_str());
+		paramsTrian[9] = atof(argv_g[9].c_str());
+		paramsTrian[10] = atof(argv_g[10].c_str());
+		paramsTrian[11] = atof(argv_g[11].c_str());
+		/**/
+		/* Set parames cube * /
+		paramsCube[0] = atof(argv_g[12].c_str());
+		paramsCube[1] = atof(argv_g[13].c_str());
+		paramsCube[2] = atof(argv_g[14].c_str());
+		paramsCube[3] = atof(argv_g[15].c_str());
+		paramsCube[4] = atof(argv_g[16].c_str());
+		paramsCube[5] = atof(argv_g[17].c_str());
+		paramsCube[6] = atof(argv_g[18].c_str());
+		paramsCube[7] = atof(argv_g[19].c_str());
+		paramsCube[8] = atof(argv_g[20].c_str());
+		paramsCube[9] = atof(argv_g[21].c_str());
+		paramsCube[10] = atof(argv_g[22].c_str());
+		paramsCube[11] = atof(argv_g[23].c_str());
+		/**/
+		/* Set parames hexagon * /
+		paramsHex[0] = atof(argv_g[24].c_str());
+		paramsHex[1] = atof(argv_g[25].c_str());
+		paramsHex[2] = atof(argv_g[26].c_str());
+		paramsHex[3] = atof(argv_g[27].c_str());
+		paramsHex[4] = atof(argv_g[28].c_str());
+		paramsHex[5] = atof(argv_g[29].c_str());
+		paramsHex[6] = atof(argv_g[30].c_str());
+		paramsHex[7] = atof(argv_g[31].c_str());
+		paramsHex[8] = atof(argv_g[32].c_str());
+		paramsHex[9] = atof(argv_g[33].c_str());
+		paramsHex[10] = atof(argv_g[34].c_str());
+		paramsHex[11] = atof(argv_g[35].c_str());
+		/**/
 	}
 
-	ros::init(argc, argv, "node_a");
-	ros::NodeHandle n;
+	init(argc, argv, "node_a"); 
+	NodeHandle n;
 
 	ROS_INFO("---------- Parameters list already set ----------");
-	ROS_INFO("     typeRun : %d", typeRun);
-	ROS_INFO("     show_keypoints_");
-	ROS_INFO("     show_correspondences_");
-	ROS_INFO("     use_cloud_resolution_");
-	ROS_INFO("     use_hough_");
-	ROS_INFO("     model_ss_");
-	ROS_INFO("     scene_ss_");
-	ROS_INFO("     rf_rad_");
-	ROS_INFO("     descr_rad_");
-	ROS_INFO("     cg_size_");
-	ROS_INFO("     cg_thresh_");
-	ROS_INFO("     hv_clutter_reg_");
-	ROS_INFO("     hv_inlier_th_");
-	ROS_INFO("     hv_occlusion_th_");
-	ROS_INFO("     hv_rad_clutter_");
-	ROS_INFO("     hv_regularizer_");
-	ROS_INFO("     hv_rad_normals_");
-	ROS_INFO("     region_growing_setDistanceThreshold");
-	ROS_INFO("     region_growing_setPointColorThreshold");
-	ROS_INFO("     region_growing_setRegionColorThreshold");
-	ROS_INFO("     angular_resolution");
-	ROS_INFO("     setUnseenToMaxRange");
-	ROS_INFO("     LINK CHOOSEN: %s\n", link_tf.data.c_str());
+	ROS_INFO("     typeRun:\t\t\t\t\t %d", typeRun);
+	ROS_INFO("     show_keypoints_:\t\t\t\t %s", show_keypoints_ ? "true" : "false");
+	ROS_INFO("     show_correspondences_:\t\t\t %s", show_correspondences_ ? "true" : "false");
+	ROS_INFO("     use_cloud_resolution_:\t\t\t %s", use_cloud_resolution_ ? "true" : "false");
+	ROS_INFO("     use_hough_:\t\t\t\t %s", use_hough_ ? "true" : "false");
+	ROS_INFO("     hv_detect_clutter_:\t\t\t %s", hv_detect_clutter_ ? "true" : "false");
+	ROS_INFO("     setUnseenToMaxRange:\t\t\t %s", setUnseenToMaxRange ? "true" : "false");
+	ROS_INFO("     angular_resolution:\t\t\t %f", angular_resolution);
+	ROS_INFO("     model_ss_:\t\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[0], paramsCube[0], paramsHex[0]);
+	ROS_INFO("     scene_ss_:\t\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[1], paramsCube[1], paramsHex[1]);
+	ROS_INFO("     rf_rad_:\t\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[2], paramsCube[2], paramsHex[2]);
+	ROS_INFO("     descr_rad_:\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[3], paramsCube[3], paramsHex[3]);
+	ROS_INFO("     cg_size_:\t\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[4], paramsCube[4], paramsHex[4]);
+	ROS_INFO("     cg_thresh_:\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[5], paramsCube[5], paramsHex[5]);
+	ROS_INFO("     hv_clutter_reg_:\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[6], paramsCube[6], paramsHex[6]);
+	ROS_INFO("     hv_inlier_th_:\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[7], paramsCube[7], paramsHex[7]);
+	ROS_INFO("     hv_occlusion_th_:\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[8], paramsCube[8], paramsHex[8]);
+	ROS_INFO("     hv_rad_clutter_:\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[9], paramsCube[9], paramsHex[9]);
+	ROS_INFO("     hv_regularizer_:\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[10], paramsCube[10], paramsHex[10]);
+	ROS_INFO("     hv_rad_normals_:\t\t\t\t [t,c,h] -> [%.4f,%.4f,%.4f]", paramsTrian[11], paramsCube[11], paramsHex[11]);
+	ROS_INFO("     region_growing_setDistanceThreshold:\t %d", distanceThrs);		// Allows to set distance threshold.
+	ROS_INFO("     region_growing_setPointColorThreshold:\t %d", pointColorThrs);	// This method specifies the threshold value for color test between the points. This kind of testing is made at the first stage of the algorithm(region growing). If the difference between points color is less than threshold value, then they are considered to be in the same region.
+	ROS_INFO("     region_growing_setRegionColorThreshold:\t %d", regionColorThrs);	// This method specifies the threshold value for color test between the regions. This kind of testing is made at the second stage of the algorithm(region merging). If the difference between segments color is less than threshold value, then they are merged together.
+	ROS_INFO("     region_growing_setMinClusterSize:\t\t %d", minClusterSize);
+	ROS_INFO("     region_growing_setManClusterSize:\t\t %d", maxClusterSize);
+	ROS_INFO("     Coordinate of Link:\t\t\t %s", link_tf.data.c_str());
+	ROS_INFO("     setMaxIterazions 1:\t\t\t %d", setMaxIter1);
+	ROS_INFO("     setMaxIterazions 2:\t\t\t %d", setMaxIter2);
+	ROS_INFO("     setDistThr 1:\t\t\t\t %f", setDistThr1);
+	ROS_INFO("     setDistThr 2:\t\t\t\t %f", setDistThr2);
+	ROS_INFO("     extraSpaceRobot_toRemove:\t\t\t %f", yRobot);
+	ROS_INFO("     extraSpaceWall_toRemove:\t\t\t %f", yWall);
 	ROS_INFO("-------------------------------------------");
 
+	/* Helper parameters:
+
+		ROS_INFO("     --region_growing_setDistanceThreshold:		Allows to set distance threshold.	
+		ROS_INFO("     --region_growing_setPointColorThreshold:		This method specifies the threshold value for color test between the points. 
+																	This kind of testing is made at the first stage of the algorithm(region growing). 
+																	If the difference between points color is less than threshold value, then they are considered to be in the same region.
+		ROS_INFO("     --region_growing_setRegionColorThreshold: 	This method specifies the threshold value for color test between the regions. 
+																	This kind of testing is made at the second stage of the algorithm(region merging). 
+																	If the difference between segments color is less than threshold value, then they are merged together.
+		ROS_INFO("     --model_ss val:              				Model uniform sampling radius 
+		ROS_INFO("     --scene_ss val:             			 		Scene uniform sampling radius 
+		ROS_INFO("     --rf_rad val:                		 		Reference frame radius 
+		ROS_INFO("     --descr_rad val:             		 		Descriptor radius 
+		ROS_INFO("     --cg_size val:               		 		Cluster size 
+		ROS_INFO("     --cg_thresh val:             		 		Clustering threshold 
+		ROS_INFO("     --icp_max_iter val:          		 		ICP max iterations number 
+		ROS_INFO("     --icp_corr_distance val:     		 		ICP correspondence distance 
+		ROS_INFO("     --hv_clutter_reg val:        		 		Clutter Regularizer 
+		ROS_INFO("     --hv_inlier_th val:          		 		Inlier threshold 
+		ROS_INFO("     --hv_occlusion_th val:       		 		Occlusion threshold 
+		ROS_INFO("     --hv_rad_clutter val:        		 		Clutter radius 
+		ROS_INFO("     --hv_regularizer val:        		 		Regularizer value 
+		ROS_INFO("     --hv_rad_normals val:        		 		Normals radius 
+		ROS_INFO("     --hv_detect_clutter val:     		 		TRUE if clutter detect enabled
 	
+	
+	*/
+
+
 	pub = n.advertise<sensor_msgs::PointCloud2> ("/my_cloud", 1);
 	pub2 = n.advertise<sensor_msgs::PointCloud2> ("/my_cloud_inliers", 1);
-
-	ros::Subscriber sub;
+	
+	Subscriber sub;
 	if(typeRun == 0){
-		sub = n.subscribe<sensor_msgs::PointCloud2>("/camera/hd/points", 1, Pcl_camera);		// REAL
+		sub = n.subscribe<sensor_msgs::PointCloud2>("/camera/hd/points", 1, Pcl_camera);					// REAL
 	}else if(typeRun == 1){
-		sub = n.subscribe<sensor_msgs::PointCloud2>("/kinect_cloud", 1, Pcl_camera);			// REAL-SIMULATED
+		sub = n.subscribe<sensor_msgs::PointCloud2>("/kinect_cloud", 1, Pcl_camera);						// REAL-SIMULATED
 	}else if(typeRun == 2){
-		sub = n.subscribe<sensor_msgs::PointCloud2>("/camera/depth/points", 1, Pcl_camera);		// SIMULATED
+		sub = n.subscribe<sensor_msgs::PointCloud2>("/camera/depth_registered/points", 1, Pcl_camera);		// SIMULATED (COLORED)
 	}	
 	
-	ros::spin();
+	spin();
 
 	return 0;
 

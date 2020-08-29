@@ -1,0 +1,5 @@
+pcl_viewer -multiview 1 cube_all_2k.pcd
+
+OR
+
+CloudCompare

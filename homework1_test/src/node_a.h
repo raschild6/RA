@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <tuple>
 #include <cstdlib>
+#include <chrono>
+#include <ctime>  
 
 #include "ros/ros.h"
 #include "homework1_test/msg_hm1.h"
@@ -43,6 +45,15 @@
 #include <pcl/recognition/hv/hv_go.h>
 #include <pcl/registration/icp.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/surface/gp3.h>
+
+#include <pcl/io/vtk_lib_io.h>
+#include <vtkVersion.h>
+#include <vtkPLYReader.h>
+#include <vtkOBJReader.h>
+#include <vtkTriangle.h>
+#include <vtkTriangleFilter.h>
+#include <vtkPolyDataMapper.h>
 
 #include <pcl/visualization/cloud_viewer.h>
 
