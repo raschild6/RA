@@ -1,27 +1,4 @@
-#include "ros/ros.h"
-#include "apriltag_ros/AprilTagDetectionArray.h"
-#include "apriltag_ros/AprilTagDetection.h"
-#include <map>
-#include <vector>
-#include <iostream>
-#include <fstream>
-#include <math.h>
-
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
-
-#include <moveit/move_group_interface/move_group_interface.h>
-#include <moveit/planning_scene_interface/planning_scene_interface.h>
-#include <moveit_msgs/DisplayRobotState.h>
-#include <moveit_msgs/DisplayTrajectory.h>
-#include <moveit_msgs/AttachedCollisionObject.h>
-#include <moveit_msgs/CollisionObject.h>
-#include <moveit_visual_tools/moveit_visual_tools.h>
-
-#include <gazebo_msgs/SetModelState.h>
-#include <moveit/robot_model_loader/robot_model_loader.h>
-#include <sensor_msgs/JointState.h>
+#include "node_d.h"
 
 using namespace std;
 ros::Publisher gazebo_model_state_pub;
@@ -453,16 +430,17 @@ int main(int argc, char **argv)
     //	ROS_INFO("argc: %d", argc);
     if (argc < 1)
     {
-        ROS_INFO("Usage: rosrun hw_2 node_d frame_id_1 frame_id_2 ...");
+        ROS_INFO("Usage: rosrun hw_2 node_d [0 = pcl, 1+ = apriltag] frame_id_1 frame_id_2 ...");
     }
 
     initializeMap();
     ROS_INFO("Map initialized");
-
-    for (int i = 1; i < argc; i++)
+    
+    for (int i = 2; i < argc; i++)
     {
         ROS_INFO("Object requested: %s", argv[i]);
         requested_objects.insert(requested_objects.begin(), frame_id_to_id.at(argv[i]));
+
     }
 
     // SETUP
@@ -477,7 +455,13 @@ int main(int argc, char **argv)
     kinematic_state = robot_state::RobotStatePtr(new robot_state::RobotState(kinematic_model));
 
     startPosition();
-    ros::Subscriber sub = n.subscribe("/tag_detections", 1000, chatterCallback);
+
+    ros::Subscriber sub;
+    if(atoi(argv[i].c_str()) == 0){
+        sub = n.subscribe("/tag_detections_pcl", 1000, chatterCallback);
+    }else{
+        sub = n.subscribe("/tag_detections", 1000, chatterCallback); 
+    }
     ros::Subscriber joint_states_sub = n.subscribe("/ur5/joint_states", 1, jointStatesCallback);
     ROS_INFO("Node started and subscribed to /tag_detections");
     gazebo_model_state_pub = n.advertise<gazebo_msgs::ModelState>("/gazebo/set_model_state", 1);
