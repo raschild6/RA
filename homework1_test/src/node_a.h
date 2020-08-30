@@ -15,6 +15,7 @@
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <geometry_msgs/PoseStamped.h>
 
 #include <pcl/ModelCoefficients.h>
 #include <pcl/io/pcd_io.h>
@@ -61,6 +62,8 @@
 #include <tf2/transform_datatypes.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2/LinearMath/Quaternion.h>
 
 #include <pcl/range_image/range_image.h>
 #include <pcl/visualization/range_image_visualizer.h>
@@ -70,6 +73,9 @@
 #include <pcl/filters/statistical_outlier_removal.h>
 
 #include "std_msgs/String.h"
+
+#include "apriltag_ros/AprilTagDetectionArray.h"
+#include "apriltag_ros/AprilTagDetection.h"
 
 namespace Hm1{
 

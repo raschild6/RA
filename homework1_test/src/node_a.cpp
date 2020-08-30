@@ -3,6 +3,7 @@
 using namespace std;
 using namespace ros;
 using namespace pcl;
+using namespace apriltag_ros;
 
 typedef PointXYZRGBA PointType;
 typedef Normal NormalType;
@@ -53,7 +54,7 @@ bool hv_detect_clutter_ (true);
 float angular_resolution = 0.5f;
 RangeImage::CoordinateFrame coordinate_frame = RangeImage::CAMERA_FRAME;
 bool setUnseenToMaxRange = false;
-									  //100
+									  
 int distanceThrs = 10, pointColorThrs = 200, regionColorThrs = 50, minClusterSize = 200, maxClusterSize = 1500;
 double minCutZ = 0, maxCutZ = 1.98; 
 float z_plane = 1.0; 
@@ -62,6 +63,8 @@ float setInTh = 0.025;
 float paramsGHV[6] = {0.003, 0.01, 3.0, 0.03, 5.0, 0.05};
 
 vector<tuple<PointCloud<PointType>::ConstPtr, int>> registered_instances_tuple;
+vector<tuple<PointCloud<PointType>::ConstPtr, int>> cloud_to_publish;
+int meshTypeCloud [50];
 
 int argc_g; 
 string argv_g[100];
@@ -280,6 +283,73 @@ pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr FastTriangulation(const pcl::PointC
 
 */
 
+void publishResults(){
+	AprilTagDetectionArray tag_detection_array;
+
+	for(tuple<PointCloud<PointType>::ConstPtr, int> t : cloud_to_publish){
+		
+		PointCloud<PointType>::Ptr cloud (new PointCloud<PointType>);	
+		copyPointCloud(*get<0>(t), *cloud);
+
+		Eigen::Vector4f centroid;
+
+        compute3DCentroid (*cloud, centroid);
+		ROS_INFO("centroid(position) [x,y,z] = [%f,%f,%f]", centroid[0], centroid[1], centroid[2]);
+
+		//geometry_msgs::Quaternion orientation = mRot2Quat(rotation_matrix);		// non ho la matrice di rotazione
+		
+		geometry_msgs::PoseWithCovarianceStamped tag_poseCovStamp;
+		geometry_msgs::PoseWithCovariance tag_poseCov;
+		geometry_msgs::Pose tag_pose;
+		
+		tag_pose.position.x = centroid[0];
+		tag_pose.position.y = centroid[1];
+		tag_pose.position.z = centroid[2];
+		tf2::Quaternion quat_tf; 
+		quat_tf.setRPY(0.0, 0.0, 0.0);
+		geometry_msgs::Quaternion quat_msg;
+   		tf2::convert(quat_msg, quat_tf); 
+		tag_pose.orientation = quat_msg; 
+		tag_poseCovStamp.header.frame_id = "camera_link";
+		ROS_INFO("Quaternion [x,y,z,w] = [%f,%f,%f,%f]", tag_pose.orientation.x, tag_pose.orientation.y, tag_pose.orientation.z, tag_pose.orientation.w);
+		/*
+		ROS_INFO("eigen_vectors coeff:");
+		for(int i = 0; i < 3; i++)
+			for(int j = 0; j < 3; j++)
+				ROS_INFO("coeff (%d,%d): %f", i,j,eigen_vectors.coeff(i,j));
+		ROS_INFO("eigen_values coeff:");
+		float maxEigenValue = eigen_values.coeff(0);
+		ROS_INFO("coeff (0): %f", i,eigen_values.coeff(0));
+		int maxId_eigenvalue = 0;
+		for(int i = 1; i < 3; i++){
+			if(eigen_values.coeff(i) > maxEigenValue){
+				maxEigenValue = eigen_values.coeff(i);
+				maxId_eigenvalue = i;
+			}
+			ROS_INFO("coeff (%d): %f", i,eigen_values.coeff(i));
+		}
+		
+		int secondEigenValue = maxEigenValue == 0 ? 1 : maxEigenValue == 1 ? 2 : maxEigenValue == 2 ? 0 : -1,
+			thirdEigenValue = -1;   
+		do{
+			int temp = rand() % 3;
+			if(maxEigenValue != temp && secondEigenValue != temp)
+				thirdEigenValue = temp;
+		}while(thirdEigenValue == -1);
+		*/	
+
+		AprilTagDetection tag_detection;
+		tag_poseCov.pose = tag_pose;
+		tag_poseCovStamp.pose = tag_poseCov;
+		tag_detection.pose = tag_poseCovStamp;
+		tag_detection.id = {get<1>(t)};
+		tag_detection_array.detections.push_back(tag_detection);
+	}
+
+	pub2.publish(tag_detection_array);
+	spinOnce();
+}
+
 void normalsVis (PointCloud<PointType>::ConstPtr cloud, PointCloud<Normal>::ConstPtr normals){
 	// --------------------------------------------------------
 	// -----Open 3D viewer and add point cloud and normals-----
@@ -373,8 +443,8 @@ int ChooseColorMesh(const PointCloud<PointType>::ConstPtr &cloud, int i_cloud){
 		ROS_INFO("%d ........... Blue ...........",i_cloud);
 		return 2;
 	}else{
-		ROS_INFO("%d ........... Try all possibility ...........",i_cloud);
-		return 4;							
+		ROS_INFO("%d ........... Probably colors missed! Wait next frame ...........",i_cloud);
+		return 5;							
 	}
 	// REAL color
 	/** 
@@ -1047,12 +1117,10 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 		return;
 	}
 	/**/
+	/* ------- print final result -------
 	pcl::visualization::PCLVisualizer viewer ("Hypotheses Verification");
-	//viewer.removeAllShapes();
-	//viewer.removeAllPointClouds();
 	viewer.setBackgroundColor (1, 1, 1);
-	//viewer.addPointCloud (cloud_filtered, "scene_cloud");
-	
+	*/
 	vector<thread> threads;
 	for(int i = 0; i < cloud_extracted.size(); i++){
 		int color = 5; 	//default condition
@@ -1061,7 +1129,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 		switch (color){
 			case (0):		// red
 				if(typeRun == 2){
-					
+
 					/* For using FastTriangulation
 					cloud_triang = FastTriangulation(cloud_extracted[i]);
 					copyPointCloud(*cloud_triang, *cloud_final);
@@ -1071,6 +1139,9 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 					PointType minPt, maxPt;
 					getMinMax3D (*cloud_extracted[i], minPt, maxPt);
 					if(minPt.z >= 1.9){
+						
+						meshTypeCloud[i] = 4;
+						
 						filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
 						threads.push_back(thread (Correspondence_Grouping, cloud_extracted[i], filename, i, paramsTrian));
 					}else{
@@ -1080,6 +1151,9 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 						pass.setFilterFieldName ("z");	
 						pass.setFilterLimits (minPt.z, minPt.z + 0.1);
 						pass.filter (*cloud_extracted[i]);
+						
+						meshTypeCloud[i] = 0;
+
 						filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
 						threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
 						}
@@ -1092,6 +1166,9 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 			break;
 			case (1):		// green
 				if(typeRun == 2){
+					
+					meshTypeCloud[i] = 2;
+
 					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
 					threads.push_back(thread (Correspondence_Grouping, cloud_extracted[i], filename, i, paramsTrian));
 				}else{
@@ -1109,6 +1186,9 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 					pass.setFilterFieldName ("z");	
 					pass.setFilterLimits (minPt.z, minPt.z + 0.1);
 					pass.filter (*cloud_extracted[i]);
+
+					meshTypeCloud[i] = 3;
+
 					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
 					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
 				}else{
@@ -1127,6 +1207,9 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 					pass.setFilterFieldName ("z");	
 					pass.setFilterLimits (minPt.z, minPt.z + 0.1);
 					pass.filter (*cloud_extracted[i]);
+
+					meshTypeCloud[i] = 1;
+
 					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/hexagon_cut_20k.pcd";
 					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsHex));
 				}else{
@@ -1136,6 +1219,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 			break;
 			case (4):		// try all mesh
 				if(typeRun == 2){
+					meshTypeCloud[i] = 5;
 					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/cube_cut_10k.pcd";
 					threads.push_back(thread (Correspondence_Grouping,cloud_extracted[i], filename, i, paramsCube));
 					filename = "/home/michele/catkin_ws/src/homework1_test/meshes/triangle_centered_cut_10k.pcd";
@@ -1274,12 +1358,17 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 			*cloud_rotoTrans = *registered_instances_global[i];
 			//cloud_rotoTrans = rotoTraslatePCD(registered_instances_global[i]);
 
+			cloud_to_publish.push_back({cloud_rotoTrans, meshTypeCloud[i]});
+
+			/* ------- print final result -------
 			CloudStyle clusterStyle = style_red;
 			visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (cloud_rotoTrans, clusterStyle.r, clusterStyle.g, clusterStyle.b);
 			viewer.addPointCloud (cloud_rotoTrans, instance_color_handler,  to_string(i));
 			viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, clusterStyle.size, to_string(i));
+			*/
 		}
 	}
+	/* ------- print final result -------
 	CloudStyle clusterStyle2 = style_black;
 	visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (temp_cloud, clusterStyle2.r, clusterStyle2.g, clusterStyle2.b);
 	viewer.addPointCloud (temp_cloud, instance_color_handler,  to_string(registered_instances_global.size ()));
@@ -1288,6 +1377,11 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 		viewer.spinOnce ();
 	}
 	/**/
+
+
+	publishResults();
+
+
 }
 
 int main(int argc, char **argv){	
@@ -1422,7 +1516,7 @@ int main(int argc, char **argv){
 
 
 	pub = n.advertise<sensor_msgs::PointCloud2> ("/my_cloud", 1);
-	pub2 = n.advertise<sensor_msgs::PointCloud2> ("/my_cloud_inliers", 1);
+	pub2 = n.advertise<AprilTagDetectionArray> ("/pose_objects", 1);
 	
 	Subscriber sub;
 	if(typeRun == 0){
