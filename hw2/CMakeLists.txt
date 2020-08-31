@@ -87,14 +87,14 @@ include_directories(
    ###
      ###
 
-add_executable(node_b src/node_b.cpp)
-add_executable(node_a src/node_a.cpp)
-add_executable(node_c src/node_c.cpp)
+#add_executable(node_b src/node_b.cpp)
+#add_executable(node_a src/node_a.cpp)
+#add_executable(node_c src/node_c.cpp)
 add_executable(node_d src/node_d.cpp)
 target_link_libraries(node_d ${catkin_LIBRARIES})
-target_link_libraries(node_b ${catkin_LIBRARIES})
-target_link_libraries(node_a ${catkin_LIBRARIES})
-target_link_libraries(node_c ${catkin_LIBRARIES})
+#target_link_libraries(node_b ${catkin_LIBRARIES})
+#target_link_libraries(node_a ${catkin_LIBRARIES})
+#target_link_libraries(node_c ${catkin_LIBRARIES})
 
 #############
 ## Testing ##
