@@ -269,7 +269,7 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
             target_pose.pose.orientation.x = 0.00;
             target_pose.pose.orientation.y = 0.00;
             target_pose.pose.orientation.z = 0.00;
-            target_pose.pose.orientation.w = 0.00;
+            target_pose.pose.orientation.w = 1.00;
             target_pose.pose.position.x = message.pose.pose.pose.position.x;
             target_pose.pose.position.y = message.pose.pose.pose.position.y;
             target_pose.pose.position.z = message.pose.pose.pose.position.z;
@@ -337,6 +337,7 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
                 }
             }
         }
+        startPosition();
         //ros::Duration(2.0).sleep();
         for (int i = 0; i < found_objects.size(); i++)
         {
@@ -344,9 +345,6 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
             {
                 if (found_objects.at(i).id.at(0) == collision_objects.at(j).id.at(0))
                 {
-                    
-                    startPosition();
-
                     moveOverObject(found_objects.at(i), collision_objects.at(j).primitive_poses.at(0));
 
                     moveDown();
