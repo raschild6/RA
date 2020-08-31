@@ -129,8 +129,9 @@ void moveOverObject(apriltag_ros::AprilTagDetection object, geometry_msgs::Pose 
     //ROS_INFO("Pose Reference Frame: ", move_group.getPoseReferenceFrame());
     const robot_state::JointModelGroup *joint_model_group =
         move_group->getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+    geometry_msgs::PoseStamped current_pose = move_group->getCurrentPose();
 
-    
+    box_pose.orientation = current_pose.pose.orientation;
     //****************************//
     //          PLANNING          //
     //****************************//
@@ -142,12 +143,20 @@ void moveOverObject(apriltag_ros::AprilTagDetection object, geometry_msgs::Pose 
     // Set start state to the current robot state
     move_group->setStartStateToCurrentState();
     move_group->setMaxVelocityScalingFactor(1.0);
+    ROS_INFO("Move over:");
+    ROS_INFO("\t\t- pose = [%f, %f, %f]", box_pose.position.x,
+             box_pose.position.y,
+             box_pose.position.z);
+    ROS_INFO("\t\t- orient = [%f, %f, %f, %f]", box_pose.orientation.x,
+             box_pose.orientation.y,
+             box_pose.orientation.z,
+             box_pose.orientation.w);
 
     move_group->setPoseTarget(box_pose, "ee_link");
     move_group->setGoalPositionTolerance(0.05);
     move_group->setGoalOrientationTolerance(0.05);
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
-    move_group->setPlanningTime(5.0);
+    move_group->setPlanningTime(20.0);
     moveit::planning_interface::MoveItErrorCode success = move_group->plan(my_plan);
 
     // If a plan is found execute it
@@ -163,7 +172,7 @@ void moveOverObject(apriltag_ros::AprilTagDetection object, geometry_msgs::Pose 
 
     ROS_INFO_STREAM("Motion duration: " << (ros::Time::now() - start).toSec());
 
-    geometry_msgs::PoseStamped current_pose = move_group->getCurrentPose();
+    current_pose = move_group->getCurrentPose();
 
     ROS_INFO("pose of end effector:");
     ROS_INFO("\t\t- pose = [%f, %f, %f]", current_pose.pose.position.x,
@@ -345,7 +354,9 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg)
             {
                 if (found_objects.at(i).id.at(0) == collision_objects.at(j).id.at(0))
                 {
-                    moveOverObject(found_objects.at(i), collision_objects.at(j).primitive_poses.at(0));
+                    geometry_msgs::Pose target_pose = collision_objects.at(j).primitive_poses.at(0);
+                    target_pose.position.z = target_pose.position.z + collision_objects.at(j).primitives.at(0).dimensions[2] / 2 + 0.825;
+                    moveOverObject(found_objects.at(i), target_pose);
 
                     moveDown();
 
