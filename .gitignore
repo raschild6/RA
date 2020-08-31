@@ -17,6 +17,8 @@ moveit_tutorials/
 moveit_visual_tools/
 panda_moveit_config/
 
+homework1_test/test/*.txt
+
 compile_commands_all.json
 
 compile_commands_slow.json
