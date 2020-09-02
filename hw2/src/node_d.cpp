@@ -227,6 +227,7 @@ void jointStatesCallback(){
             kinematic_state->setJointGroupPositions(joint_model_group, joint_states);
 
             const Eigen::Affine3d &end_effector_state = kinematic_state->getGlobalLinkTransform("world");
+            
             geometry_msgs::PoseStamped target_pose;
             target_pose.pose = tf2::toMsg(end_effector_state);
 
@@ -235,7 +236,7 @@ void jointStatesCallback(){
             geometry_msgs::TransformStamped transformStamped;
             geometry_msgs::PoseStamped target_pose_tf;
 
-            ros::Duration timeout(10.0);
+            ros::Duration timeout(0.05);
             try{
                 transformStamped = tfBuffer.lookupTransform("world", "ee_link", ros::Time(0), timeout);
                 tf2::doTransform(target_pose, target_pose_tf, transformStamped);
@@ -254,6 +255,7 @@ void jointStatesCallback(){
             pose.orientation.y = 0.0;
             pose.orientation.z = 0.0;
             pose.orientation.w = 1.0;
+            /**/
 
             gazebo_msgs::ModelState model_state;
             // This string results from the spawn_urdf call in the box.launch file argument: -model box
@@ -290,6 +292,7 @@ void jointStatesCallback(){
         kinematic_state->setJointGroupPositions(joint_model_group, joint_states);
 
         const Eigen::Affine3d &end_effector_state = kinematic_state->getGlobalLinkTransform("world");
+
         geometry_msgs::PoseStamped target_pose;
         target_pose.pose = tf2::toMsg(end_effector_state);
 
@@ -308,7 +311,6 @@ void jointStatesCallback(){
         }
         //ROS_INFO("Link pose: [%f, %f, %f]", end_effector_state.translation().x(), end_effector_state.translation().y(), end_effector_state.translation().z());
         //ROS_INFO("Link pose converted: [%f, %f, %f]", target_pose_tf.pose.position.x, target_pose_tf.pose.position.y, target_pose_tf.pose.position.z);
-
         geometry_msgs::Pose pose;
         pose.position.x = target_pose_tf.pose.position.x;
         pose.position.y = target_pose_tf.pose.position.y;
@@ -330,7 +332,7 @@ void jointStatesCallback(){
         model_state.twist.angular.z = 0.0;
         model_state.reference_frame = std::string("world");
 
-        ROS_INFO("Hexagon pose: [%f, %f, %f]", pose.position.x, pose.position.y, pose.position.z);
+        //ROS_INFO("Hexagon pose: [%f, %f, %f]", pose.position.x, pose.position.y, pose.position.z);
         gazebo_model_state_pub.publish(model_state);
     }
 }
@@ -338,6 +340,7 @@ void jointStatesCallback(){
 void updateJoinStates(const sensor_msgs::JointState &joint_states_current){
     if(attached){
         m.lock();
+        //ROS_INFO("----- Time in sec of message recived: %d -----", ros::Time::now()); 
         joint_states_vector.push_back(joint_states_current);
         m.unlock();
     }
@@ -517,8 +520,10 @@ int main(int argc, char **argv){
         sub = n.subscribe("/pose_objects", 1000, chatterCallback);
         ROS_INFO("Node started and subscribed to /pose_objects");
     }
+    
     ros::Subscriber joint_states_sub = n.subscribe("/ur5/joint_states", 1, updateJoinStates);
     gazebo_model_state_pub = n.advertise<gazebo_msgs::ModelState>("/gazebo/set_model_state", 1);
+    
     ros::waitForShutdown();
     return 0;
 }
