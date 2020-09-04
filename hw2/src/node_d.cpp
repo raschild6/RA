@@ -297,7 +297,7 @@ void moveDown(){
              current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w);
 }
 
-void jointStatesCallback2(){
+void jointStatesCallback(const sensor_msgs::JointState &joint_states_current){
     while(attached){
         moveit_msgs::AttachedCollisionObject attachedObj = planning_scene_interface->getAttachedObjects({currentObject.id}).at(currentObject.id);
         geometry_msgs::PoseStamped box_pose;
@@ -334,92 +334,6 @@ void jointStatesCallback2(){
         model_state.reference_frame = string("world");
 
         gazebo_model_state_pub.publish(model_state);
-    }
-}
-/*
-void jointStatesCallback(){
-    while(attached){
-        
-        m.lock();
-        
-        if(joint_states_vector.size() > 0){
-            sensor_msgs::JointState joint_states_current = joint_states_vector.back();
-            //joint_states_vector.erase(joint_states_vector.begin());
-            joint_states_vector.pop_back();
-            m.unlock();
-            
-            const robot_state::JointModelGroup *joint_model_group = kinematic_model->getJointModelGroup(PLANNING_GROUP);
-            vector<double> joint_states;
-            joint_states.push_back(joint_states_current.position[2]);
-            for (int i = 1; i < joint_states_current.position.size(); i++){
-                if(i == 2)
-                    joint_states.push_back(joint_states_current.position[0]);       // 0 and 2 are inverted in joint_name
-                else
-                    joint_states.push_back(joint_states_current.position[i]);
-            }
-            kinematic_state->setToDefaultValues();
-            kinematic_state->setJointGroupPositions(joint_model_group, joint_states);
-
-            const Eigen::Affine3d &end_effector_state = kinematic_state->getGlobalLinkTransform("ee_link");
-            
-            geometry_msgs::Pose pose, box_pose;
-            pose = tf2::toMsg(end_effector_state);
-            box_pose.position = pose.position;
-            box_pose.position.z = pose.position.z - currentObject.primitives.at(0).dimensions[2] / 2 - space2rot;
-
-            if(!setEEObj){
-                setEEObj = true;
-                tf2::fromMsg(currentObject.primitive_poses.at(0).orientation, obj_q);
-                tf2::fromMsg(pose.orientation, ee_q);
-
-                box_pose.orientation = currentObject.primitive_poses.at(0).orientation;
-            }else{
-                tf2::Quaternion ee_q2;
-                tf2::fromMsg(pose.orientation, ee_q2);
-                tf2::Quaternion relative_q = ee_q2 * ee_q.inverse();
-
-                //ROS_INFO("Relative rot : [%f, %f, %f, %f]", relative_q.x(), relative_q.y(), relative_q.z(), relative_q.w());
-
-                tf2::Quaternion obj_q2 =  relative_q * obj_q;
-                box_pose.orientation = tf2::toMsg(obj_q2);
-
-                ee_q = ee_q2;
-            }
-            /** /
-            //ROS_INFO("attachedObject pose : [%f, %f, %f]", box_pose.position.x, box_pose.position.y, box_pose.position.z);
-            //ROS_INFO("fixed---Object orientation: [%f, %f, %f, %f]", currentObject.primitive_poses.at(0).orientation.x, currentObject.primitive_poses.at(0).orientation.y, currentObject.primitive_poses.at(0).orientation.z, currentObject.primitive_poses.at(0).orientation.w);
-            //ROS_INFO("attachedObject orientation: [%f, %f, %f, %f]", box_pose.orientation.x, box_pose.orientation.y, box_pose.orientation.z, box_pose.orientation.w);
-            /** /
-            gazebo_msgs::ModelState model_state;
-            model_state.model_name = id_to_gazebo_id.find(stoi(currentObject.id))->second;
-            model_state.pose = box_pose;
-            model_state.twist.linear.x = 0.0;
-            model_state.twist.linear.y = 0.0;
-            model_state.twist.linear.z = 0.0;
-            model_state.twist.angular.x = 0.0;
-            model_state.twist.angular.y = 0.0;
-            model_state.twist.angular.z = 0.0;
-            model_state.reference_frame = string("world");
-
-            gazebo_model_state_pub.publish(model_state);
-        }
-        else{
-            m.unlock();
-        }
-    }
-    // clear vector
-    m.lock();
-    joint_states_vector.clear();
-    m.unlock();
-    setEEObj = false;
-}
-*/
-void updateJoinStates(const sensor_msgs::JointState &joint_states_current){
-    if(attached){
-        m.lock();
-        //ROS_INFO("----- Time in sec of message recived: %d -----", ros::Time::now()); 
-        joint_states_vector.push_back(joint_states_current);
-        m.unlock();
     }
 }
 
@@ -554,7 +468,7 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg){
         startPosition();
         for (int i = 0; i < found_objects.size(); i++){
             for (int j = 0; j < collision_object_vector.size(); j++){
-                ROS_INFO(" ********************************** TEST [i,j] -> %d, %d **************************", found_objects.at(i).id.at(0), stoi(collision_object_vector.at(j).id));
+                ROS_INFO(" ***** TEST [i,j] -> %d, %d *****", found_objects.at(i).id.at(0), stoi(collision_object_vector.at(j).id));
                 if (found_objects.at(i).id.at(0) == stoi(collision_object_vector.at(j).id)){
 
                     geometry_msgs::Pose target_pose = collision_object_vector.at(j).primitive_poses.at(0);
@@ -576,7 +490,7 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg){
 
                     currentObject = collision_object_vector.at(j);
                     attached = true;
-                    thread updateObjectPose (jointStatesCallback2);
+                    //thread updateObjectPose (jointStatesCallback2);
 
                     moveOverObject(target_pose);
                     ros::Duration(0.1).sleep();
@@ -699,7 +613,7 @@ int main(int argc, char **argv){
         sub = n.subscribe("/pose_objects", 1000, chatterCallback);
         ROS_INFO("Node started and subscribed to /pose_objects");
     }
-    ros::Subscriber joint_states_sub = n.subscribe("/ur5/joint_states", 1, updateJoinStates);
+    ros::Subscriber joint_states_sub = n.subscribe("/ur5/joint_states", 100, jointStatesCallback);
     
     
     gazebo_model_state_pub = n.advertise<gazebo_msgs::ModelState>("/gazebo/set_model_state", 1);
