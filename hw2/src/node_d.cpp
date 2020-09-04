@@ -15,7 +15,7 @@ vector<apriltag_ros::AprilTagDetection> found_objects;
 ofstream myfile;
 
 int typeRun = 1; // 0 = from pcl of homework1_test; 1 = from apriltag
-float extraZ = 0.2, tolerance = 0.01;
+float extraZ = 0.3, space2rot = 0.0, tolerance = 0.01;
 
 // Group to move
 static const string PLANNING_GROUP = "manipulator";
@@ -33,8 +33,9 @@ moveit::planning_interface::PlanningSceneInterface *planning_scene_interface;
 vector<moveit_msgs::CollisionObject> collision_object_vector;
 vector<sensor_msgs::JointState> joint_states_vector;
 mutex m;
-string attachObjectName = "";
-geometry_msgs::Quaternion attachObjectQuaternion = toQuaternion(0.0,0.0,0.0);
+moveit_msgs::CollisionObject currentObject;
+tf2::Quaternion ee_q, obj_q;
+bool setEEObj = false;            
 
 bool processing = false;
 bool attached = false;
@@ -194,6 +195,7 @@ geometry_msgs::Quaternion ToQuaternion(double yaw, double pitch, double roll){  
 
     return q;
 }
+
 void moveOverObject(geometry_msgs::Pose box_pose){
 
     move_group->setPoseReferenceFrame("world");
@@ -262,7 +264,7 @@ void moveDown(){
         move_group->getCurrentPose();
 
     target_pose = current_pose.pose;
-    target_pose.position.z = target_pose.position.z - extraZ;
+    target_pose.position.z = target_pose.position.z - extraZ + space2rot;    
     waypoints.push_back(target_pose);
     ROS_INFO("Start Move down with coordinate:");
     ROS_INFO("\t\t- pose/orient = [%f, %f, %f] - [%f, %f, %f, %f]", target_pose.position.x, target_pose.position.y, target_pose.position.z,
@@ -295,61 +297,102 @@ void moveDown(){
              current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w);
 }
 
-void jointStatesCallback(){
-
+void jointStatesCallback2(){
     while(attached){
+        moveit_msgs::AttachedCollisionObject attachedObj = planning_scene_interface->getAttachedObjects({currentObject.id}).at(currentObject.id);
+        geometry_msgs::PoseStamped box_pose;
+        box_pose.pose.position = attachedObj.object.primitive_poses.at(0).position;
+        box_pose.pose.orientation.x = attachedObj.object.primitive_poses.at(0).orientation.x;
+        box_pose.pose.orientation.y = attachedObj.object.primitive_poses.at(0).orientation.y;
+        box_pose.pose.orientation.z = attachedObj.object.primitive_poses.at(0).orientation.z;
+        box_pose.pose.orientation.w = attachedObj.object.primitive_poses.at(0).orientation.w;
+
+
+        tf2_ros::Buffer tfBuffer;
+        tf2_ros::TransformListener tfListener(tfBuffer);
+        geometry_msgs::TransformStamped transformStamped;
+        geometry_msgs::PoseStamped target_pose_tf;
+
+        ros::Duration timeout(0.05);
+        try{
+            transformStamped = tfBuffer.lookupTransform("world", attachedObj.object.header.frame_id, ros::Time(0), timeout);
+            tf2::doTransform(box_pose, target_pose_tf, transformStamped);
+        }
+        catch (tf2::TransformException &ex){
+            ROS_INFO("Error Trasformation...%s", ex.what());
+        }
+
+        gazebo_msgs::ModelState model_state;
+        model_state.model_name = id_to_gazebo_id.find(stoi(currentObject.id))->second;
+        model_state.pose = target_pose_tf.pose;
+        model_state.twist.linear.x = 0.0;
+        model_state.twist.linear.y = 0.0;
+        model_state.twist.linear.z = 0.0;
+        model_state.twist.angular.x = 0.0;
+        model_state.twist.angular.y = 0.0;
+        model_state.twist.angular.z = 0.0;
+        model_state.reference_frame = string("world");
+
+        gazebo_model_state_pub.publish(model_state);
+    }
+}
+/*
+void jointStatesCallback(){
+    while(attached){
+        
         m.lock();
         
         if(joint_states_vector.size() > 0){
-            sensor_msgs::JointState joint_states_current = joint_states_vector.front();
-            joint_states_vector.erase(joint_states_vector.begin());
+            sensor_msgs::JointState joint_states_current = joint_states_vector.back();
+            //joint_states_vector.erase(joint_states_vector.begin());
+            joint_states_vector.pop_back();
             m.unlock();
             
             const robot_state::JointModelGroup *joint_model_group = kinematic_model->getJointModelGroup(PLANNING_GROUP);
-            const vector<string> &joint_names = joint_model_group->getJointModelNames();
-
             vector<double> joint_states;
-            for (size_t i = 0; i < joint_states_vector.at(0).position.size() - 2; ++i){
-                joint_states.push_back(joint_states_vector.at(0).position[i + 2]);
+            joint_states.push_back(joint_states_current.position[2]);
+            for (int i = 1; i < joint_states_current.position.size(); i++){
+                if(i == 2)
+                    joint_states.push_back(joint_states_current.position[0]);       // 0 and 2 are inverted in joint_name
+                else
+                    joint_states.push_back(joint_states_current.position[i]);
             }
             kinematic_state->setToDefaultValues();
             kinematic_state->setJointGroupPositions(joint_model_group, joint_states);
 
-            const Eigen::Affine3d &end_effector_state = kinematic_state->getGlobalLinkTransform("world");
+            const Eigen::Affine3d &end_effector_state = kinematic_state->getGlobalLinkTransform("ee_link");
             
-            geometry_msgs::PoseStamped target_pose;
-            target_pose.pose = tf2::toMsg(end_effector_state);
+            geometry_msgs::Pose pose, box_pose;
+            pose = tf2::toMsg(end_effector_state);
+            box_pose.position = pose.position;
+            box_pose.position.z = pose.position.z - currentObject.primitives.at(0).dimensions[2] / 2 - space2rot;
 
-            tf2_ros::Buffer tfBuffer;
-            tf2_ros::TransformListener tfListener(tfBuffer);
-            geometry_msgs::TransformStamped transformStamped;
-            geometry_msgs::PoseStamped target_pose_tf;
+            if(!setEEObj){
+                setEEObj = true;
+                tf2::fromMsg(currentObject.primitive_poses.at(0).orientation, obj_q);
+                tf2::fromMsg(pose.orientation, ee_q);
 
-            ros::Duration timeout(0.05);
-            try{
-                transformStamped = tfBuffer.lookupTransform("world", "ee_link", ros::Time(0), timeout);
-                tf2::doTransform(target_pose, target_pose_tf, transformStamped);
+                box_pose.orientation = currentObject.primitive_poses.at(0).orientation;
+            }else{
+                tf2::Quaternion ee_q2;
+                tf2::fromMsg(pose.orientation, ee_q2);
+                tf2::Quaternion relative_q = ee_q2 * ee_q.inverse();
+
+                //ROS_INFO("Relative rot : [%f, %f, %f, %f]", relative_q.x(), relative_q.y(), relative_q.z(), relative_q.w());
+
+                tf2::Quaternion obj_q2 =  relative_q * obj_q;
+                box_pose.orientation = tf2::toMsg(obj_q2);
+
+                ee_q = ee_q2;
             }
-            catch (tf2::TransformException &ex){
-                ROS_INFO("Error Trasformation...%s", ex.what());
-            }
-            //ROS_INFO("Link pose: [%f, %f, %f]", end_effector_state.translation().x(), end_effector_state.translation().y(), end_effector_state.translation().z());
-            //ROS_INFO("Link pose converted: [%f, %f, %f]", target_pose_tf.pose.position.x, target_pose_tf.pose.position.y, target_pose_tf.pose.position.z);
-
-            geometry_msgs::Pose pose;
-            pose.position.x = target_pose_tf.pose.position.x;
-            pose.position.y = target_pose_tf.pose.position.y;
-            pose.position.z = target_pose_tf.pose.position.z - 0.1;
-            pose.orientation.x = attachObjectQuaternion.x;
-            pose.orientation.y = attachObjectQuaternion.y;
-            pose.orientation.z = attachObjectQuaternion.z;
-            pose.orientation.w = attachObjectQuaternion.w;
-            /**/
-
+            /** /
+            //ROS_INFO("attachedObject pose : [%f, %f, %f]", box_pose.position.x, box_pose.position.y, box_pose.position.z);
+            //ROS_INFO("fixed---Object orientation: [%f, %f, %f, %f]", currentObject.primitive_poses.at(0).orientation.x, currentObject.primitive_poses.at(0).orientation.y, currentObject.primitive_poses.at(0).orientation.z, currentObject.primitive_poses.at(0).orientation.w);
+            //ROS_INFO("attachedObject orientation: [%f, %f, %f, %f]", box_pose.orientation.x, box_pose.orientation.y, box_pose.orientation.z, box_pose.orientation.w);
+            /** /
             gazebo_msgs::ModelState model_state;
-            // This string results from the spawn_urdf call in the box.launch file argument: -model box
-            model_state.model_name = attachObjectName;
-            model_state.pose = pose;
+            model_state.model_name = id_to_gazebo_id.find(stoi(currentObject.id))->second;
+            model_state.pose = box_pose;
             model_state.twist.linear.x = 0.0;
             model_state.twist.linear.y = 0.0;
             model_state.twist.linear.z = 0.0;
@@ -358,20 +401,19 @@ void jointStatesCallback(){
             model_state.twist.angular.z = 0.0;
             model_state.reference_frame = string("world");
 
-            //ROS_INFO("Hexagon pose: [%f, %f, %f]", pose.position.x, pose.position.y, pose.position.z);
             gazebo_model_state_pub.publish(model_state);
         }
         else{
             m.unlock();
-            ros::Duration(0.1).sleep();
         }
     }
     // clear vector
     m.lock();
     joint_states_vector.clear();
     m.unlock();
+    setEEObj = false;
 }
-
+*/
 void updateJoinStates(const sensor_msgs::JointState &joint_states_current){
     if(attached){
         m.lock();
@@ -387,9 +429,6 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg){
         processing = true;
         ROS_INFO("Message received");
         ROS_INFO("Objects detected: %d", msg->detections.size());
-
-        //for (int i = 0; i < requested_objects.size(); i++)
-        //    ROS_INFO("ID object requested: %d", requested_objects.at(i));
 
         for (int i = 0; i < msg->detections.size(); i++){
             apriltag_ros::AprilTagDetection message = msg->detections.at(i);
@@ -488,7 +527,6 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg){
             box_pose.orientation.w = target_pose_tf.pose.orientation.w;
             box_pose.position.x = target_pose_tf.pose.position.x;
             box_pose.position.y = target_pose_tf.pose.position.y;
-            //box_pose.position.z = 1.005 + primitive.dimensions[2] / 2;
             box_pose.position.z = 0.87 + primitive.dimensions[2] / 2;
             box_pose.position.y += adjustTriangleBox;
             box_pose.position.z -= adjustTriangleBox;
@@ -516,13 +554,12 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg){
         startPosition();
         for (int i = 0; i < found_objects.size(); i++){
             for (int j = 0; j < collision_object_vector.size(); j++){
+                ROS_INFO(" ********************************** TEST [i,j] -> %d, %d **************************", found_objects.at(i).id.at(0), stoi(collision_object_vector.at(j).id));
                 if (found_objects.at(i).id.at(0) == stoi(collision_object_vector.at(j).id)){
-                    
-                    int id_obj = found_objects.at(i).id.at(0);
 
                     geometry_msgs::Pose target_pose = collision_object_vector.at(j).primitive_poses.at(0);
                     target_pose.position.z = target_pose.position.z + collision_object_vector.at(j).primitives.at(0).dimensions[2] / 2 + extraZ;
-                    ROS_INFO("Move over object %d: ", id_obj);
+                    ROS_INFO("Move over object %d: ", found_objects.at(i).id.at(0));
                     ROS_INFO("\t\t- pose/orient = [%f, %f, %f] - [%f, %f, %f, %f]", target_pose.position.x, target_pose.position.y, target_pose.position.z,
                              target_pose.orientation.x, target_pose.orientation.y, target_pose.orientation.z, target_pose.orientation.w);
 
@@ -532,36 +569,32 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg){
                     
                     ROS_INFO("Attach the object to the robot");
                     move_group->attachObject(collision_object_vector.at(j).id);
-
+                    
                     ROS_INFO("Remove the object from the world");
                     planning_scene_interface->removeCollisionObjects({collision_object_vector.at(j).id});
-                    
-                    attachObjectName = id_to_gazebo_id.find(id_obj)->second;
-                    attachObjectQuaternion.x = target_pose.orientation.x;
-                    attachObjectQuaternion.y = target_pose.orientation.y;
-                    attachObjectQuaternion.z = target_pose.orientation.z;
-                    attachObjectQuaternion.w = target_pose.orientation.w;
+                    ros::Duration(0.1).sleep();
+
+                    currentObject = collision_object_vector.at(j);
                     attached = true;
+                    thread updateObjectPose (jointStatesCallback2);
 
-                    thread updateObjectPose (jointStatesCallback);
-                    ros::Duration(0.5).sleep();
-
-                    //moveOverObject(target_pose);
-                    startPosition();
-                    ros::Duration(0.5).sleep();
+                    moveOverObject(target_pose);
+                    ros::Duration(0.1).sleep();
 
                     // green final platform left
                     target_pose.position.x = 0.101878;
                     target_pose.position.y = 0.557094;
-                    target_pose.position.z = 1.2;
+                    target_pose.position.z = 1.3;
                     // green final platform right
                     //target_pose.position.x = -0.482639;
                     //target_pose.position.y = 0.565774;
                     //target_pose.position.z = 1.2;
                     moveOverObject(target_pose);
                     move_group->detachObject(collision_object_vector.at(j).id);   
-                    //collision_object_vector.erase(collision_object_vector.begin() + j); 
+                    collision_object_vector.erase(collision_object_vector.begin() + j); 
                     attached = false;
+                    ROS_INFO("Detauch object!");
+                    break;
                 }
             }
         }
@@ -576,7 +609,7 @@ void chatterCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg){
 int main(int argc, char **argv){
     ros::init(argc, argv, "node_d");
     ros::NodeHandle n;
-    ros::AsyncSpinner spinner(2);
+    ros::AsyncSpinner spinner(0);       // Allow to get messages in async way (thread). 0 means: use all processor of machine
     spinner.start();
 
     //	ROS_INFO("argc: %d", argc);
@@ -617,10 +650,10 @@ int main(int argc, char **argv){
 
     // Clear previus collison objects in the scene and attached in the robot, if there are
     // Detach an object from the robot if there is
-    ROS_INFO("Try removing attached objects from robot! Waiting (about 10 sec)...");
+    ROS_INFO("Try removing attached objects from robot! Waiting (about 3 sec)...");
     for(int i = 0; i < 16; i++){
         move_group->detachObject(to_string(i));
-        ros::Duration(0.5).sleep();
+        ros::Duration(0.1).sleep();
     }
 
     // Remove all object from the world if there are
@@ -666,8 +699,9 @@ int main(int argc, char **argv){
         sub = n.subscribe("/pose_objects", 1000, chatterCallback);
         ROS_INFO("Node started and subscribed to /pose_objects");
     }
-    
     ros::Subscriber joint_states_sub = n.subscribe("/ur5/joint_states", 1, updateJoinStates);
+    
+    
     gazebo_model_state_pub = n.advertise<gazebo_msgs::ModelState>("/gazebo/set_model_state", 1);
     
     ros::waitForShutdown();

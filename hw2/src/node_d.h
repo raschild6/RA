@@ -14,6 +14,8 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_eigen/tf2_eigen.h>
+#include <tf/transform_broadcaster.h>
+#include <tf/transform_datatypes.h>
 
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
