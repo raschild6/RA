@@ -28,5 +28,6 @@
 
 #include <gazebo_msgs/SetModelState.h>
 #include <gazebo_msgs/ModelStates.h>
+#include <geometry_msgs/Vector3.h>
 #include <moveit/robot_model_loader/robot_model_loader.h>
 #include <sensor_msgs/JointState.h>
