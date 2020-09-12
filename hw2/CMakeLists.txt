@@ -5,9 +5,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
 
 
 find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  std_msgs
-  moveit_core
+    roscpp
+    std_msgs
+    moveit_core
     moveit_visual_tools
     moveit_ros_planning
     moveit_ros_planning_interface
@@ -19,8 +19,8 @@ find_package(catkin REQUIRED COMPONENTS
     tf2_ros
     tf2_eigen
     tf2_geometry_msgs
-  apriltag_ros
-  apriltag
+    apriltag_ros
+    apriltag
 )
 
 include_directories(
@@ -66,11 +66,11 @@ catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES homework1_test
   CATKIN_DEPENDS roscpp std_msgs 
-moveit_core
-    moveit_visual_tools
-    moveit_ros_planning_interface
-    tf2_ros
-    tf2_geometry_msgs
+  moveit_core
+  moveit_visual_tools
+  moveit_ros_planning_interface
+  tf2_ros
+  tf2_geometry_msgs
   DEPENDS Boost EIGEN3
 )
 
@@ -87,14 +87,14 @@ include_directories(
    ###
      ###
 
-add_executable(node_b src/node_b.cpp)
-add_executable(node_a src/node_a.cpp)
-add_executable(node_c src/node_c.cpp)
+#add_executable(node_b src/node_b.cpp)
+#add_executable(node_a src/node_a.cpp)
+#add_executable(node_c src/node_c.cpp)
 add_executable(node_d src/node_d.cpp)
 target_link_libraries(node_d ${catkin_LIBRARIES})
-target_link_libraries(node_b ${catkin_LIBRARIES})
-target_link_libraries(node_a ${catkin_LIBRARIES})
-target_link_libraries(node_c ${catkin_LIBRARIES})
+#target_link_libraries(node_b ${catkin_LIBRARIES})
+#target_link_libraries(node_a ${catkin_LIBRARIES})
+#target_link_libraries(node_c ${catkin_LIBRARIES})
 
 #############
 ## Testing ##
