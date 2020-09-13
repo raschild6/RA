@@ -10,19 +10,41 @@
 #include <tf/transform_datatypes.h>
 
 #include <tf2/LinearMath/Quaternion.h>
+#include<tf/transform_datatypes.h>
 
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
-ros::Publisher initial_pose_pub;
 
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "simple_navigation_goals");
   ros::NodeHandle n;
   ros::AsyncSpinner spinner(0); // Allow to get messages in async way (thread). 0 means: use all processor of machine
+  ros::Publisher odom_map_tf = n.advertise<tf::tfMessage>("marrtino/amcl/tf", 1);
   spinner.start();
 
-  initial_pose_pub = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("initial_pose", 1);
+  tf2_ros::Buffer tfBuffer;
+  tf2_ros::TransformListener tfListener(tfBuffer);
+  geometry_msgs::TransformStamped transformStamped;
+
+  ros::Duration timeout(1);
+  
+  try
+  {
+    transformStamped = tfBuffer.lookupTransform("marrtino_map", "marrtino_odom", ros::Time(0), timeout);
+  }
+  catch (tf2::TransformException &ex)
+  {
+    ROS_INFO("Error Trasformation...%s", ex.what());
+  }
+
+  tf::tfMessage tf_message;
+  tf_message.transforms[0] = transformStamped;
+  //tf_message.transforms[0].header.frame_id = "marrtino_odom";
+  //tf_message.transforms[0].child_frame_id = "marrtino_map";
+  //tf::quaternionTFToMsg(tf::Quaternion(0.015, 0.000, 0.005, 1.000), tf_message.transforms[0].transform.rotation);
+  //tf::vector3TFToMsg(tf::Vector3(-0.135, -0.044, -0.028), tf_message.transforms[0].transform.translation);
+  odom_map_tf.publish(tf_message);
 
   //tell the action client that we want to spin a thread by default
   MoveBaseClient ac("marrtino/move_base", true);
@@ -41,12 +63,12 @@ int main(int argc, char **argv)
   target_pose.pose.position.x = 1.0;
   target_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
-  tf2_ros::Buffer tfBuffer;
-  tf2_ros::TransformListener tfListener(tfBuffer);
-  geometry_msgs::TransformStamped transformStamped;
+  //tf2_ros::Buffer tfBuffer;
+  //tf2_ros::TransformListener tfListener(tfBuffer);
+  //geometry_msgs::TransformStamped transformStamped;
   geometry_msgs::PoseStamped target_pose_tf;
 
-  ros::Duration timeout(1);
+  //ros::Duration timeout(1);
   try
   {
     transformStamped = tfBuffer.lookupTransform("marrtino_map", "marrtino_base_footprint", ros::Time(0), timeout);
@@ -63,6 +85,8 @@ int main(int argc, char **argv)
 
   ROS_INFO("Sending goal");
   ac.sendGoal(goal);
+
+  /*
   geometry_msgs::PoseWithCovarianceStamped initial_pose;
   initial_pose.pose.pose.position.x = -1.31;
   initial_pose.pose.pose.position.y = 0;
@@ -74,9 +98,7 @@ int main(int argc, char **argv)
   tf2::Quaternion rpy;
   rpy.setEuler(yaw, pitch, roll);
   tf2::convert(initial_pose.pose.pose.orientation, rpy);
-  ;
-
-  initial_pose_pub.publish(initial_pose);
+  */
 
   ac.waitForResult();
 
