@@ -7,18 +7,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
-  moveit_core
-    moveit_visual_tools
-    moveit_ros_planning
-    moveit_ros_planning_interface
-    moveit_ros_perception
-    pluginlib
-    geometric_shapes
-    rosbag
-    tf2
-    tf2_ros
-    tf2_eigen
-    tf2_geometry_msgs
+  pluginlib
+  rosbag
+  tf2
+  tf2_ros
+  tf2_eigen
+  tf2_geometry_msgs
   actionlib
   move_base_msgs
 )
@@ -66,13 +60,10 @@ catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES homework1_test
   CATKIN_DEPENDS roscpp std_msgs 
-moveit_core
-    moveit_visual_tools
-    moveit_ros_planning_interface
-    tf2_ros
-    tf2_geometry_msgs
-    actionlib
-    move_base_msgs
+  tf2_ros
+  tf2_geometry_msgs
+  actionlib
+  move_base_msgs
   DEPENDS Boost EIGEN3
 )
 
