@@ -12,7 +12,7 @@ vector<int> requested_objects;
 vector<apriltag_ros::AprilTagDetection> found_objects;
 
 int typeRun = 1; // 0 = from pcl of homework1_test; 1 = from apriltag
-float extraZ = 0.3, space2rot = 0.01, tolerance = 0.01;
+float extraZ = 0.3, space2rot = 0.04, tolerance = 0.01;
 
 // Group to move
 static const string PLANNING_GROUP = "manipulator";
@@ -32,6 +32,8 @@ moveit_msgs::CollisionObject currentObject;
 int id_obj_triang;
 
 tf2::Quaternion q_gazebo, q_zero_ee;
+
+geometry_msgs::PoseStamped eef_pose_over_obj;
 
 bool find_gazebo_trian = false;            
 bool triang = false, rotationZero = true;
@@ -127,74 +129,22 @@ void startPosition(){
              current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w);
 }
 
-void endPosition(){
-    // Raw pointers are frequently used to refer to the planning group for improved performance.
-    const robot_state::JointModelGroup *joint_model_group =
-        move_group->getCurrentState()->getJointModelGroup(PLANNING_GROUP);
-
-    //****************************//
-    //          PLANNING          //
-    //****************************//
-
-    // Get joint names for group
-    vector<string> manipulator_joint_names;
-    manipulator_joint_names = move_group->getJoints();
-
-    // Set start state to the current robot state
-    move_group->setStartStateToCurrentState();
-    move_group->setMaxVelocityScalingFactor(1.0);
-
-    move_group->setNamedTarget("initial_configuration");
-    ROS_INFO("Set initial target pose");
-    // Try to plan movement from start to target position
-    moveit::planning_interface::MoveGroupInterface::Plan my_plan;
-    move_group->setPlanningTime(10.0);
-    moveit::planning_interface::MoveItErrorCode success = move_group->plan(my_plan);
-
-    // If a plan is found execute it
-    if (success != moveit_msgs::MoveItErrorCodes::SUCCESS)
-        throw runtime_error("No plan found");
-
-    ROS_INFO_STREAM("Plan found in " << my_plan.planning_time_ << " seconds");
-
+void executePlanObj(moveit::planning_interface::MoveGroupInterface::Plan my_plan){
     // Execute the plan
     ros::Time start = ros::Time::now();
 
-    move_group->move();
+    move_group->execute(my_plan);
 
     ROS_INFO_STREAM("Motion duration: " << (ros::Time::now() - start).toSec());
 
-    geometry_msgs::PoseStamped current_pose =
-        move_group->getCurrentPose();
+    geometry_msgs::PoseStamped current_pose = move_group->getCurrentPose();
 
-    ROS_INFO("Finish setInizialPosizion with pose of end effector:");
+    ROS_INFO("Finish MoveEndObj with pose of end effector:");
     ROS_INFO("\t\t- pose/orient = [%f, %f, %f] - [%f, %f, %f, %f]", current_pose.pose.position.x, current_pose.pose.position.y, current_pose.pose.position.z,
              current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w);
 }
 
-double to_degrees(double radians){
-    return radians * (180.0 / M_PI);
-}
-
-geometry_msgs::Quaternion ToQuaternion(double yaw, double pitch, double roll){      // yaw (Z), pitch (Y), roll (X)
-    // Abbreviations for the various angular functions
-    double cy = cos(yaw * 0.5);
-    double sy = sin(yaw * 0.5);
-    double cp = cos(pitch * 0.5);
-    double sp = sin(pitch * 0.5);
-    double cr = cos(roll * 0.5);
-    double sr = sin(roll * 0.5);
-
-    geometry_msgs::Quaternion q;
-    q.w = cr * cp * cy + sr * sp * sy;
-    q.x = sr * cp * cy - cr * sp * sy;
-    q.y = cr * sp * cy + sr * cp * sy;
-    q.z = cr * cp * sy - sr * sp * cy;
-
-    return q;
-}
-
-void moveOverObject(geometry_msgs::Pose box_pose, bool triang){
+void moveOverObject(geometry_msgs::Pose box_pose, bool triang, bool overObj){
 
     move_group->setPoseReferenceFrame("world");
 
@@ -203,19 +153,23 @@ void moveOverObject(geometry_msgs::Pose box_pose, bool triang){
         move_group->getCurrentState()->getJointModelGroup(PLANNING_GROUP);
     geometry_msgs::PoseStamped current_pose = move_group->getCurrentPose();
 
-    if(triang){
+    if(!overObj){
+        eef_pose_over_obj = move_group->getCurrentPose("ee_link");
+        box_pose.position.z = current_pose.pose.position.z - extraZ + space2rot;
+    }
+
+    if(triang && !overObj){
         tf2::Quaternion q_obj, q_current_ee, q_trasformed_ee;
         tf2::fromMsg(box_pose.orientation, q_obj);
         tf2::fromMsg(current_pose.pose.orientation, q_current_ee);
         q_trasformed_ee = q_obj * q_current_ee;
         box_pose.orientation = tf2::toMsg(q_trasformed_ee);
+        eef_pose_over_obj.pose.orientation = box_pose.orientation; 
     }else{
         box_pose.orientation = current_pose.pose.orientation;
     }
-    //****************************//
-    //          PLANNING          //
-    //****************************//
 
+    //          PLANNING          //
     // Get joint names for group
     vector<string> manipulator_joint_names;
     manipulator_joint_names = move_group->getJoints();
@@ -226,6 +180,7 @@ void moveOverObject(geometry_msgs::Pose box_pose, bool triang){
     move_group->setPoseTarget(box_pose, "ee_link");
     move_group->setGoalPositionTolerance(tolerance);
     move_group->setGoalOrientationTolerance(tolerance);
+    move_group->setNumPlanningAttempts(30);
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
     move_group->setPlanningTime(60.0);
     moveit::planning_interface::MoveItErrorCode success = move_group->plan(my_plan);
@@ -259,48 +214,79 @@ void moveOverObject(geometry_msgs::Pose box_pose, bool triang){
              current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w);
 }
 
-void moveDown(){
+moveit::planning_interface::MoveGroupInterface::Plan planEndObj(geometry_msgs::Pose box_pose, bool triang){
 
     vector<geometry_msgs::Pose> waypoints;
     move_group->setPoseReferenceFrame("world");
-
+    move_group->setMaxVelocityScalingFactor(1.0);
+    move_group->setGoalPositionTolerance(0.05);
+    move_group->setGoalOrientationTolerance(0.05);
+    move_group->setNumPlanningAttempts(60);
+    move_group->setPlanningTime(60.0);
+    
     //Pose computed with respect to world frame
     geometry_msgs::Pose target_pose;
-    geometry_msgs::PoseStamped current_pose =
-        move_group->getCurrentPose();
+    geometry_msgs::PoseStamped current_pose;
+    current_pose = move_group->getCurrentPose();
 
-    target_pose = current_pose.pose;
-    target_pose.position.z = target_pose.position.z - extraZ + space2rot;
+    if(triang){
+        tf2::Quaternion q_obj, q_current_ee, q_trasformed_ee;
+        tf2::fromMsg(box_pose.orientation, q_obj);
+        tf2::fromMsg(current_pose.pose.orientation, q_current_ee);
+        q_trasformed_ee = q_obj * q_current_ee;
+        box_pose.orientation = tf2::toMsg(q_trasformed_ee);
+    }else{
+        box_pose.orientation = current_pose.pose.orientation;
+    }
+    
+    target_pose = box_pose;
+    waypoints.push_back(eef_pose_over_obj.pose);
+
+    target_pose.position.x = 0.109;
+    target_pose.position.y = -0.52;
+    target_pose.position.z = 1.5;
+    // waypoints.push_back(target_pose);
+
+    target_pose.position.x = 0.22;
+    target_pose.position.y = -0.08;
+    target_pose.position.z = 1.4;
+    //waypoints.push_back(target_pose);
+
+    // ***** Green final platform left *****
+    //target_pose.position.x = 0.101878;
+    //target_pose.position.y = 0.557094;
+    target_pose.position.x = 0.101;
+    target_pose.position.y = 0.557;
+    target_pose.position.z = 1.4;
+    
+    // ***** Green final platform right *****
+    //target_pose.position.x = -0.482639;
+    //target_pose.position.y = 0.565774;
+    //target_pose.position.z = 1.2;
     waypoints.push_back(target_pose);
-    ROS_INFO("Start Move down with coordinate:");
-    ROS_INFO("\t\t- pose/orient = [%f, %f, %f] - [%f, %f, %f, %f]", target_pose.position.x, target_pose.position.y, target_pose.position.z,
-             target_pose.orientation.x, target_pose.orientation.y, target_pose.orientation.z, target_pose.orientation.w);
-
+    
+    move_group->setStartStateToCurrentState();
     moveit_msgs::RobotTrajectory trajectory;
     double fraction = move_group->computeCartesianPath(waypoints,
-                                                       0.01, // eef_step
-                                                       0.0,  // jump_threshold
-                                                       trajectory);
-
-    // Set start state to the current robot state
-    move_group->setStartStateToCurrentState();
-    move_group->setMaxVelocityScalingFactor(1.0);
+                                                    0.01, // eef_step
+                                                    0.0,  // jump_threshold
+                                                    trajectory);
 
     moveit::planning_interface::MoveGroupInterface::Plan my_plan;
     my_plan.trajectory_ = trajectory;
+    
 
-    // Execute the plan
-    ros::Time start = ros::Time::now();
-
-    move_group->execute(my_plan);
-
-    ROS_INFO_STREAM("Motion duration: " << (ros::Time::now() - start).toSec());
-
-    current_pose = move_group->getCurrentPose();
-
-    ROS_INFO("Finish MoveDown with pose of end effector:");
+    ROS_INFO_STREAM("Accuracy plan found: " << fraction * 100.0 << " %");
+    ROS_INFO("Start MoveEndObj with coordinate:");
     ROS_INFO("\t\t- pose/orient = [%f, %f, %f] - [%f, %f, %f, %f]", current_pose.pose.position.x, current_pose.pose.position.y, current_pose.pose.position.z,
-             current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w);
+            current_pose.pose.orientation.x, current_pose.pose.orientation.y, current_pose.pose.orientation.z, current_pose.pose.orientation.w);
+
+    if(fraction < 0.95){
+        ROS_INFO("Warning: computeCartesianPath too inaccurate. Skip mid-position and try to plan directly final pose!");
+        my_plan.planning_time_ = -1.0;  // used to indicate: plan not available
+    }
+    
+    return my_plan;
 }
 
 void correctTriangle(const gazebo_msgs::ModelStates &model_states){
@@ -376,6 +362,33 @@ void jointStatesCallback(const sensor_msgs::JointState::ConstPtr &joint_states_c
 
         gazebo_model_state_pub.publish(model_state);
     }
+}
+
+void addTableCollisionObject(){
+    // Add collision object of table
+    shape_msgs::SolidPrimitive primitive;
+    primitive.type = primitive.BOX;
+    primitive.dimensions.resize(3);
+    primitive.dimensions[0] = 1.0;
+    primitive.dimensions[1] = 0.785;
+    primitive.dimensions[2] = 0.27;
+    geometry_msgs::Pose table_pose;
+    tf2::Quaternion q_table;
+    q_table.setRPY(0, 0, 0);
+    table_pose.orientation = tf2::toMsg(q_table);
+    table_pose.position.x = 0.0;
+    table_pose.position.y = -0.5925;
+    table_pose.position.z = 0.735;
+
+    moveit_msgs::CollisionObject collision_object;
+    collision_object.header.frame_id = move_group->getPlanningFrame();
+    collision_object.id = "100";              
+    collision_object.primitives.push_back(primitive);
+    collision_object.primitive_poses.push_back(table_pose);
+    collision_object.operation = collision_object.ADD;
+
+    collision_object_vector.push_back(collision_object);
+    planning_scene_interface->applyCollisionObjects(collision_object_vector);
 }
 
 void tagDetectCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg){
@@ -529,41 +542,52 @@ void tagDetectCallback(const apriltag_ros::AprilTagDetectionArray::ConstPtr &msg
                     }
                     
                     if(triang){
-                        target_pose.position.z = target_pose.position.z + extraZ + 0.0336 + space2rot;
+                        target_pose.position.z = target_pose.position.z + extraZ + 0.0336;
                         target_pose.position.y -= 0.0336;
-                        moveOverObject(target_pose, true);
+                        moveOverObject(target_pose, !triang, true);
                         
-                        moveDown();
+                        moveOverObject(target_pose, triang, false);
 
+                        // Temporaney removing table
+                        planning_scene_interface->removeCollisionObjects({"100"});
+                        ros::Duration(0.1).sleep();
+                        
                     }else{
-                        target_pose.position.z = target_pose.position.z + collision_object_vector.at(j).primitives.at(0).dimensions[2] / 2 + extraZ + space2rot;
-                        moveOverObject(target_pose, false);
+                        target_pose.position.z = target_pose.position.z + collision_object_vector.at(j).primitives.at(0).dimensions[2] / 2 + extraZ;
+                        moveOverObject(target_pose, !triang, true);
                     
-                        moveDown();
+                        moveOverObject(target_pose, !triang, false);
                     }
+
+                    // Prepare plan to execute for ending phase
+                    moveit::planning_interface::MoveGroupInterface::Plan plan_final_move = planEndObj(target_pose, triang);
                     
                     ROS_INFO("Attach the object to the robot");
                     move_group->attachObject(collision_object_vector.at(j).id);
                     
                     ROS_INFO("Remove the object from the world");
                     planning_scene_interface->removeCollisionObjects({collision_object_vector.at(j).id});
-                    //ros::Duration(0.1).sleep();
+                    ros::Duration(0.1).sleep();
 
                     currentObject = collision_object_vector.at(j);
                     attached = true;
-                    
-                    // green final platform left
-                    target_pose.position.x = 0.101878;
-                    target_pose.position.y = 0.557094;
-                    target_pose.position.z = 1.3;
-                    // green final platform right
-                    //target_pose.position.x = -0.482639;
-                    //target_pose.position.y = 0.565774;
-                    //target_pose.position.z = 1.2;
-                    moveOverObject(target_pose, false);
-                    
+
+                    // Execute plan programmed or plan again
+                    if(plan_final_move.planning_time_ != -1.0){
+                        executePlanObj(plan_final_move);
+                    }else{
+                        target_pose.position.x = 0.101;
+                        target_pose.position.y = 0.557;
+                        target_pose.position.z = 1.4;
+                        moveOverObject(target_pose, triang, false);
+                    }
+
+                    if(triang)
+                        addTableCollisionObject();
+
                     attached = false;
                     move_group->detachObject(collision_object_vector.at(j).id);
+                    planning_scene_interface->removeCollisionObjects({collision_object_vector.at(j).id});
                     collision_object_vector.erase(collision_object_vector.begin() + j); 
                     ROS_INFO("Detauch object!");
                     startPosition();
@@ -635,29 +659,7 @@ int main(int argc, char **argv){
     
 
     // Add collision object of table
-    shape_msgs::SolidPrimitive primitive;
-    primitive.type = primitive.BOX;
-    primitive.dimensions.resize(3);
-    primitive.dimensions[0] = 1.0;
-    primitive.dimensions[1] = 0.785;
-    primitive.dimensions[2] = 0.27;
-    geometry_msgs::Pose table_pose;
-    tf2::Quaternion q_table;
-    q_table.setRPY(0, 0, 0);
-    table_pose.orientation = tf2::toMsg(q_table);
-    table_pose.position.x = 0.0;
-    table_pose.position.y = -0.5925;
-    table_pose.position.z = 0.735;
-
-    moveit_msgs::CollisionObject collision_object;
-    collision_object.header.frame_id = move_group->getPlanningFrame();
-    collision_object.id = "100";              
-    collision_object.primitives.push_back(primitive);
-    collision_object.primitive_poses.push_back(table_pose);
-    collision_object.operation = collision_object.ADD;
-
-    collision_object_vector.push_back(collision_object);
-    planning_scene_interface->applyCollisionObjects(collision_object_vector);
+    addTableCollisionObject();
 
     // ****** Publish and Subscribe ****** //
     ros::Subscriber sub;
