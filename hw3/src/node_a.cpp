@@ -25,7 +25,7 @@ int main(int argc, char **argv)
 
     if (tfBuffer.canTransform("marrtino_map", "marrtino_odom", ros::Time::now(), ros::Duration(3.0)))
     {
-      geometry_msgs::TransformStamped transformStamped = tfBuffer.lookupTransform("marrtino_map", "marrtino_odom", ros::Time(0), timeout);
+      transformStamped = tfBuffer.lookupTransform("marrtino_map", "marrtino_odom", ros::Time(0), timeout);
     }
   }
   catch (tf2::TransformException &ex)
@@ -33,7 +33,7 @@ int main(int argc, char **argv)
     ROS_INFO("Error Trasformation...%s", ex.what());
   }
 
-  tf_message.transforms[0] = transformStamped;
+  tf_message.transforms = {transformStamped};
   //tf_message.transforms[0].header.frame_id = "marrtino_odom";
   //tf_message.transforms[0].child_frame_id = "marrtino_map";
   //tf::quaternionTFToMsg(tf::Quaternion(0.015, 0.000, 0.005, 1.000), tf_message.transforms[0].transform.rotation);
