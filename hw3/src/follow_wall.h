@@ -17,3 +17,4 @@
 #include <nav_msgs/Odometry.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/Point.h>
+#include <gazebo_msgs/ModelStates.h>
