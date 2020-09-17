@@ -71,7 +71,6 @@ void go_straight_ahead(geometry_msgs::PoseStamped des_pose)
 {
   double desired_yaw = atan2(des_pose.pose.position.y - robot_pose.pose.pose.position.y, des_pose.pose.position.x - robot_pose.pose.pose.position.x);
   ROS_INFO("DESIRED YAW: %f", desired_yaw);
-
   double err_yaw = desired_yaw - yaw;
   double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
 
@@ -111,37 +110,14 @@ int main(int argc, char **argv)
   cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/cmd_vel", 1);
   ROS_INFO("Waiting for odometry");
   ros::Duration(2).sleep();
-  ros::Rate rate(10);
+  ros::Rate rate(100);
 
   geometry_msgs::PoseStamped des_pose;
-  geometry_msgs::PoseStamped target_pose;
-
-  //we'll send a goal to the robot to move 1 meter forward
-
-  target_pose.pose.position.x = 0.5;
-  target_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
-
-  tf2_ros::Buffer tfBuffer;
-  tf2_ros::TransformListener tfListener(tfBuffer);
-  geometry_msgs::TransformStamped transformStamped;
-
-  ros::Duration timeout(1);
-  try
-  {
-    transformStamped = tfBuffer.lookupTransform("marrtino_map", "marrtino_base_footprint", ros::Time(0), timeout);
-    tf2::doTransform(target_pose, des_pose, transformStamped);
-  }
-  catch (tf2::TransformException &ex)
-  {
-    ROS_INFO("Error Trasformation...%s", ex.what());
-  }
 
   des_pose.pose.position.x = -1.327743;
   des_pose.pose.position.y = 3.166668;
   des_pose.pose.position.z = 0;
   des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
-  tf::Pose current_goal;
-  tf::poseMsgToTF(des_pose.pose, current_goal);
 
   des_pose.header.frame_id = "marrtino_map";
   des_pose.header.stamp = ros::Time::now();
