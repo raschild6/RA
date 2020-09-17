@@ -36,16 +36,24 @@ void sendMyGoal(geometry_msgs::PoseStamped target_pose){
   }
   
   goal.target_pose = target_pose_tf;
+  */
+  goal.target_pose = target_pose;
   goal.target_pose.header.frame_id = "marrtino_map";
   goal.target_pose.header.stamp = ros::Time::now();
 
-  current_goal_map_pose = target_pose_tf;
   ROS_INFO("Goal pose (marrtino_map): [%f, %f, %f] - [%f, %f, %f, %f]", goal.target_pose.pose.position.x, goal.target_pose.pose.position.y,
       goal.target_pose.pose.position.z, goal.target_pose.pose.orientation.x, goal.target_pose.pose.orientation.y, 
       goal.target_pose.pose.orientation.z, goal.target_pose.pose.orientation.w);
   ROS_INFO(" ----- Sending goal -----");
 
   ac.sendGoal(goal);
+
+  ac.waitForResult();
+
+  if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
+    ROS_INFO("ARRIVED!");
+  else
+    ROS_INFO("FAILED!");
 
 }
 
@@ -134,14 +142,26 @@ int main(int argc, char **argv){
 
   //ros::Subscriber odometry_marrtino = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, currentOdometry);
   ros::Subscriber feedback = n.subscribe("/marrtino/move_base/feedback", 1, resultFeedback);
-  ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
+  //ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
 
-  current_goal_map_pose.header.frame_id = "marrtino_base_footprint";
+  current_goal_map_pose.header.frame_id = "marrtino_map";
   current_goal_map_pose.header.stamp = ros::Time::now();
-  current_goal_map_pose.pose.position.x = 1.0;
-  current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
+  current_goal_map_pose.pose.position.x = -0.223;
+  current_goal_map_pose.pose.position.y = 1.034;
+  current_goal_map_pose.pose.position.z = 0.0;
+  current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
   
-  ROS_INFO("Fist Goal pose (marrtino_base_footprint): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
+  // --- GREEN final platform left
+  //target_pose.position.x = 0.101878;
+  //target_pose.position.y = 0.557094;
+  //target_pose.position.z = 1.3;
+  // --- GREEN final platform right
+  //target_pose.position.x = -0.482639;
+  //target_pose.position.y = 0.565774;
+  //target_pose.position.z = 1.2;
+  
+  
+  ROS_INFO("Fist Goal pose (marrtino_map): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
       current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
       current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
 
