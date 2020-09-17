@@ -15,6 +15,8 @@ find_package(catkin REQUIRED COMPONENTS
   tf2_geometry_msgs
   actionlib
   move_base_msgs
+  nav_msgs
+  #nav_core
 )
 
 include_directories(
@@ -83,6 +85,7 @@ include_directories(
 
 add_executable(node_a src/node_a.cpp)
 add_executable(node_b src/node_b.cpp)
+add_dependencies(node_b nav_msgs_generate_messages_cpp)
 target_link_libraries(node_a ${catkin_LIBRARIES})
 target_link_libraries(node_b ${catkin_LIBRARIES})
 
