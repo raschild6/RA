@@ -1,5 +1,7 @@
 #include "follow_wall.h"
 
+typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
+
 ros::Publisher cmd_pub;
 geometry_msgs::PoseWithCovarianceStamped robot_pose;
 double yaw = 0;
@@ -9,13 +11,13 @@ int global_state = 0;
 
 void odomPoseCallback(const nav_msgs::Odometry::ConstPtr &msgOdom)
 {
-  ROS_INFO("\t\t- Odometry pose(x, y) = [%f, %f]", msgOdom->pose.pose.position.x, msgOdom->pose.pose.position.y);
+  //ROS_INFO("\t\t- Odometry pose(x, y) = [%f, %f]", msgOdom->pose.pose.position.x, msgOdom->pose.pose.position.y);
   robot_pose.pose.pose = msgOdom->pose.pose;
   robot_pose.header.frame_id = "marrtino_map";
   tf::Pose current_goal;
   tf::poseMsgToTF(msgOdom->pose.pose, current_goal);
   yaw = tf::getYaw(current_goal.getRotation());
-  ROS_INFO("CURRENT YAW: %f", yaw);
+  //ROS_INFO("CURRENT YAW: %f", yaw);
   return;
 }
 
@@ -28,7 +30,7 @@ void change_state(int state)
 void fix_yaw(geometry_msgs::PoseStamped des_pose)
 {
   double desired_yaw = atan2(des_pose.pose.position.y - robot_pose.pose.pose.position.y, des_pose.pose.position.x - robot_pose.pose.pose.position.x);
-  ROS_INFO("DESIRED YAW: %f", desired_yaw);
+  //ROS_INFO("DESIRED YAW: %f", desired_yaw);
 
   double err_yaw = desired_yaw - yaw;
 
@@ -52,7 +54,7 @@ void fix_yaw(geometry_msgs::PoseStamped des_pose)
 void go_straight_ahead(geometry_msgs::PoseStamped des_pose)
 {
   double desired_yaw = atan2(des_pose.pose.position.y - robot_pose.pose.pose.position.y, des_pose.pose.position.x - robot_pose.pose.pose.position.x);
-  ROS_INFO("DESIRED YAW: %f", desired_yaw);
+  //ROS_INFO("DESIRED YAW: %f", desired_yaw);
   double err_yaw = desired_yaw - yaw;
   double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
 
