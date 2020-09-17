@@ -14,6 +14,11 @@ void sendMyGoal(geometry_msgs::PoseStamped target_pose){
   MoveBaseClient ac("marrtino/move_base", true);
   move_base_msgs::MoveBaseGoal goal;
   
+   //wait for the action server to come up
+  while(!ac.waitForServer(ros::Duration(5.0))){
+    ROS_INFO("Waiting for the move_base action server to come up");
+  }
+
   tf2_ros::Buffer tfBuffer;
   tf2_ros::TransformListener tfListener(tfBuffer);
   geometry_msgs::TransformStamped transformStamped;
@@ -84,7 +89,7 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
             amcl_pose.position.y - current_amcl_pose.position.y, amcl_pose.position.z - current_amcl_pose.position.z, 
             q_translation.getX(), q_translation.getY(), q_translation.getZ(), q_translation.getW());
 
-  current_goal_map_pose.pose.orientation = tf2::toMsg(q_translation * q_current_goal);
+  //current_goal_map_pose.pose.orientation = tf2::toMsg(q_translation * q_current_goal);
   
   current_amcl_pose.position = amcl_pose.position;  
   current_amcl_pose.orientation = amcl_pose.orientation;
@@ -133,7 +138,7 @@ int main(int argc, char **argv){
 
   current_goal_map_pose.header.frame_id = "marrtino_base_footprint";
   current_goal_map_pose.header.stamp = ros::Time::now();
-  current_goal_map_pose.pose.position.x = 0.5;
+  current_goal_map_pose.pose.position.x = 1.0;
   current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
   
   ROS_INFO("Fist Goal pose (marrtino_base_footprint): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
@@ -168,8 +173,13 @@ int main(int argc, char **argv){
   while(ros::ok()){
     if(goal_plan_status != -1 && goal_plan_status != 1){
       ROS_INFO("Goal Status: %d", goal_plan_status);
-      r.sleep();
     }
+    if(current_goal_map_pose.pose.position.y > 2.7){
+      ROS_INFO(" ------------ END Narrow Passage ------------");
+      correct_goal_pose.shutdown();
+      break;
+    }
+    //r.sleep();
     /*else if(goal_plan_status == 1){
       r.sleep();
     }else if(goal_plan_status == 3){
