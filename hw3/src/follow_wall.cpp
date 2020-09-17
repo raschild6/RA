@@ -19,24 +19,6 @@ void odomPoseCallback(const nav_msgs::Odometry::ConstPtr &msgOdom)
   return;
 }
 
-void gazeboPoseCallback(const gazebo_msgs::ModelStates &model_states)
-{
-  for (int i = 0; i < model_states.name.size(); i++)
-  {
-    if (model_states.name[i] == "marrtino::marrtino_base_footprint")
-    {
-      ROS_INFO("\t\t- Gazebo pose(x, y) = [%f, %f]", model_states.pose.at(i).position.x, model_states.pose.at(i).position.y);
-      robot_pose.pose.pose = model_states.pose.at(i);
-      robot_pose.header.frame_id = "marrtino_map";
-      tf::Pose current_goal;
-      tf::poseMsgToTF(model_states.pose.at(i), current_goal);
-      yaw = tf::getYaw(current_goal.getRotation());
-      ROS_INFO("CURRENT YAW: %f", yaw);
-      return;
-    }
-  }
-}
-
 void change_state(int state)
 {
   global_state = state;
@@ -106,7 +88,6 @@ int main(int argc, char **argv)
   ros::init(argc, argv, "follow_wall");
   ros::NodeHandle n;
   ros::Subscriber sub_odom = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, odomPoseCallback);
-  //ros::Subscriber sub_gazebo = n.subscribe("/gazebo/link_states", 1, gazeboPoseCallback);
   cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/cmd_vel", 1);
   ROS_INFO("Waiting for odometry");
   ros::Duration(2).sleep();
@@ -123,6 +104,9 @@ int main(int argc, char **argv)
   des_pose.header.stamp = ros::Time::now();
   ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
   ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+  tf::Pose current_goal;
+  tf::poseMsgToTF(des_pose.pose, current_goal);
+
   ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
 
   while (ros::ok())
