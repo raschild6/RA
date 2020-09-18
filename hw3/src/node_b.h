@@ -1,4 +1,7 @@
-
+#include <stdlib.h>
+#include <unordered_map>
+#include <vector>
+#include <numeric>
 #include <math.h>
 #include <ros/ros.h>
 #include <move_base_msgs/MoveBaseAction.h>
@@ -15,11 +18,19 @@
 
 #include <tf2/LinearMath/Quaternion.h>
 
+// Laser
+#include <sensor_msgs/LaserScan.h>
+#include <gazebo_msgs/ModelStates.h>
+
+// Twist
+#include <geometry_msgs/Twist.h>
+#include <geometry_msgs/Point.h>
+
 // Feedback
 #include <move_base_msgs/MoveBaseActionFeedback.h>
 
 //Odometry
-//#include <nav_msgs/Odometry.h>
+#include <nav_msgs/Odometry.h>
 
 // Wrapper of planner
 //#include <costmap_2d/costmap_2d_ros.h>
