@@ -4,7 +4,7 @@ ros::Publisher cmd_pub;
 geometry_msgs::PoseWithCovarianceStamped robot_pose;
 double yaw = 0;
 double yaw_precision = M_PI / (90 * 2); // +/- 1 degree allowed
-double dist_precision = 0.05;
+double dist_precision = 0.1;
 int global_state = 0;
 
 void odomPoseCallback(const nav_msgs::Odometry::ConstPtr &msgOdom)
@@ -96,7 +96,7 @@ int main(int argc, char **argv)
   geometry_msgs::PoseStamped des_pose;
 
   des_pose.pose.position.x = -1.327743;
-  des_pose.pose.position.y = 3.166668;
+  des_pose.pose.position.y = 2.7;
   des_pose.pose.position.z = 0;
   des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
