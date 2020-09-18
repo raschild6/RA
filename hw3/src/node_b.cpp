@@ -36,7 +36,7 @@ void sendMyGoal(geometry_msgs::PoseStamped target_pose){
   }
   
   goal.target_pose = target_pose_tf;
-  */
+  
   goal.target_pose = target_pose;
   goal.target_pose.header.frame_id = "marrtino_map";
   goal.target_pose.header.stamp = ros::Time::now();
@@ -142,7 +142,7 @@ int main(int argc, char **argv){
 
   //ros::Subscriber odometry_marrtino = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, currentOdometry);
   ros::Subscriber feedback = n.subscribe("/marrtino/move_base/feedback", 1, resultFeedback);
-  //ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
+  ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
 
   current_goal_map_pose.header.frame_id = "marrtino_map";
   current_goal_map_pose.header.stamp = ros::Time::now();

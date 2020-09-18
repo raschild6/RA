@@ -6,6 +6,20 @@
 #include <string>
 using namespace std;
 
+/*
+    Laser Scan: cycle [0:400]
+                degree ->   back    =   [350:50]
+                            right   =   [50:150]
+                            front   =   [150:250]
+                            left    =   [250:350]
+
+        - robot stake:  back-right  =   [42:44]
+                        front-right =   [111:115]
+                        front-left  =   [286:290]
+                        back-left   =   [357:359]
+*/
+
+
 ros::Publisher cmd_pub;
 float range_min = 0;
 float range_max = 0;
@@ -118,8 +132,7 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg)
     ROS_INFO("LASER RAYS: %d", msg.ranges.size());
     for (int i = 0; i < msg.ranges.size(); i++)
     {
-        ROS_INFO("i: %d", i);
-        ROS_INFO("msg at i: %f", msg.ranges.at(i));
+        ROS_INFO("msg at %d: %f", i, msg.ranges.at(i));
         if (msg.ranges.at(i) > range_min)
         {
             if (i < msg.ranges.size()/5)
