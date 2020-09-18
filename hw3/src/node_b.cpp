@@ -8,7 +8,7 @@ geometry_msgs::Pose current_amcl_pose;
 geometry_msgs::PoseStamped current_goal_map_pose;
 
 bool amcl_set = false;
-int goal_plan_status = -1;
+int goal_plan_status = -10;
 
 
 /**** LASER ****/
@@ -117,14 +117,12 @@ void take_action(){
 
   if(get<0>(regions["front_1"]) < min_obstacle_dist || get<0>(regions["front_2"]) < min_obstacle_dist){
 
-    // stop curren goal planning
-    // TODO ??????????????????????
-
-
     vector<string> probably_regions = {};
+    vector<int> space_states = {};
+    int come_back = 0;
 
     // iterate over the regions
-    for_each(regions.begin(), regions.end() , [](pair<string, tuple<float, float>> element){
+    for_each(regions.begin(), regions.end() , [&probably_regions](pair<string, tuple<float, float>> element){
 
       // choose possible regions -> without an obstable and with good average of free space
       if(get<0>(element.second) >= min_obstacle_dist && get<1>(element.second) >= min_available_reg){
@@ -133,24 +131,24 @@ void take_action(){
     });
 
 
-    // FRONT_2 BUSY -> FRONT_1 FREE, check LEFT_2 
-    if(regions.find("front_1") != regions.end()){
-      if(regions.find("left_2") != regions.end()){
+    // FRONT_2 BUSY -> FRONT_1 FREE, check RIGHT_2 
+    if(regions.find("front_1") != regions.end() && regions.find("front_2") == regions.end()){
+      if(regions.find("right_2") != regions.end()){
         
-        state_description = "case 1 - nothing";     // enough space for traveling 
-        change_state(0);
+        ROS_INFO("-----> pass on the right");     // enough space for traveling 
+        space_states.push_back(-1);
       
       }else{
         // decidere che fare?
       }
     }
     
-    // FRONT_1 BUSY -> FRONT_2 FREE, check RIGHT_1 
-    else if(regions.find("front_2") != regions.end()){
-      if(regions.find("right_1") != regions.end()){
+    // FRONT_1 BUSY -> FRONT_2 FREE, check LEFT_1 
+    else if(regions.find("front_2") != regions.end() && regions.find("front_1") == regions.end()){
+      if(regions.find("left_1") != regions.end()){
         
-        state_description = "case 1 - nothing";     // enough space for traveling 
-        change_state(0);
+        ROS_INFO("-----> pass on the left");     // enough space for traveling 
+        space_states.push_back(-2);
       
       }else{
         // decidere che fare?
@@ -161,9 +159,9 @@ void take_action(){
     else if(regions.find("right_1") != regions.end()){
       if(regions.find("right_2") != regions.end()){
         
-        state_description = "case 1 - nothing";     // enough space for traveling 
-        change_state(0);
-      
+        ROS_INFO("-----> turn right");     // enough space for traveling 
+        space_states.push_back(-3);
+        come_back++;
       }else{
         // decidere che fare?
       }
@@ -173,21 +171,21 @@ void take_action(){
     if(regions.find("left_1") != regions.end()){
       if(regions.find("left_2") != regions.end()){
         
-        state_description = "case 1 - nothing";     // enough space for traveling 
-        change_state(0);
-      
+        ROS_INFO("-----> turn_left");     // enough space for traveling 
+        space_states.push_back(-4);
+        come_back++;
       }else{
         // decidere che fare?
       }
     }
     
     // FRONT, RIGHT, LEFT BUSY -> check BACK_1, BACK_2
-    if(/* ne right ne left liberi*/){
+    if(come_back != 2){
       if(regions.find("back_1") != regions.end()){
         if(regions.find("back_2") != regions.end()){
           
-          state_description = "case 1 - nothing";     // enough space for traveling 
-          change_state(0);
+          ROS_INFO("-----> go back");     // enough space for traveling 
+          space_states.push_back(-5);
         
         }else{
           // decidere che fare?
@@ -195,6 +193,15 @@ void take_action(){
       }
     }
 
+    ROS_INFO("STATES RECOGNICE:");
+    for(int state : space_states){
+      ROS_INFO("\t\t state: %d", state);
+    }
+    
+    if(space_states.size() != 0)
+      goal_plan_status = space_states[0];
+    else
+      ROS_INFO("space_states empty");
   }
 
   
@@ -222,14 +229,14 @@ geometry_msgs::Twist follow_the_wall()
 }
 void laserReadCallback(const sensor_msgs::LaserScan &msg)
 {
-    //ROS_INFO("LASER READ");
+    ROS_INFO("LASER READ");
     range_min = msg.range_min;
     range_max = msg.range_max;
     float angle_min = msg.angle_min;
     float angle_max = msg.angle_max;
     float angle_increment = msg.angle_increment;
     vector<float> right, front, left, back = {};
-    //ROS_INFO("LASER RAYS: %d", msg.ranges.size());
+    ROS_INFO("LASER RAYS: %d", msg.ranges.size());
     for (int i = 0; i < msg.ranges.size(); i++){
       
       //ROS_INFO("msg at %d: %f", i, msg.ranges.at(i));
@@ -239,25 +246,27 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg)
         continue;
 
       if (msg.ranges.at(i) > range_min){
-        if (i < 1 / 8 * msg.ranges.size() || i >= 7 / 8 * msg.ranges.size())
+        if(i == 50)
+          ROS_INFO("hi");
+        if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
             back.push_back(msg.ranges.at(i));
-        if (i < 3 / 8 * msg.ranges.size() || i >= 1 / 8 * msg.ranges.size())
+        else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
             right.push_back(msg.ranges.at(i));
-        if (i < 5 / 8 * msg.ranges.size() || i >= 3 / 8 * msg.ranges.size())
+        else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
             front.push_back(msg.ranges.at(i));
-        if (i < 7 / 8 * msg.ranges.size() || i >= 5 / 8 * msg.ranges.size())
+        else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
             left.push_back(msg.ranges.at(i));
       }
     }
     
-    //ROS_INFO("RIGHT SIZE: %d", right.size());
-    //ROS_INFO("MIN: %f", *min_element(begin(right), end(right)));
-    //ROS_INFO("FRONT SIZE: %d", front.size());
-    //ROS_INFO("MIN: %f", *min_element(begin(right), end(right)));
-    //ROS_INFO("LEFT SIZE: %d", left.size());
-    //ROS_INFO("MIN: %f", *min_element(begin(right), end(right)));
-    //ROS_INFO("BACK SIZE: %d", back.size());
-    //ROS_INFO("MIN: %f", *min_element(begin(back), end(back)));
+    ROS_INFO("RIGHT SIZE: %d", right.size());
+    ROS_INFO("MIN: %f", *min_element(begin(right), end(right)));
+    ROS_INFO("FRONT SIZE: %d", front.size());
+    ROS_INFO("MIN: %f", *min_element(begin(front), end(front)));
+    ROS_INFO("LEFT SIZE: %d", left.size());
+    ROS_INFO("MIN: %f", *min_element(begin(left), end(left)));
+    ROS_INFO("BACK SIZE: %d", back.size());
+    ROS_INFO("MIN: %f", *min_element(begin(back), end(back)));
     
     regions["right_1"] = tuple<float,float>(*min_element(begin(right), begin(right) + (right.size() / 2) - 1), accumulate(begin(right), begin(right) + (right.size() / 2) - 1, 0.0) / right.size());
     regions["right_2"] = tuple<float,float>(*min_element(begin(right) + right.size() / 2, end(right)), accumulate(begin(right) + right.size() / 2, end(right), 0.0) / right.size());
@@ -273,15 +282,17 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg)
 }
 
 
-void sendMyGoal(geometry_msgs::PoseStamped target_pose){
-  MoveBaseClient ac("marrtino/move_base", true);
-  move_base_msgs::MoveBaseGoal goal;
+void change_goal_state(int state){
   
-   //wait for the action server to come up
-  while(!ac.waitForServer(ros::Duration(5.0))){
-    ROS_INFO("Waiting for the move_base action server to come up");
+  if (state != goal_plan_status){
+    ROS_INFO("CHANGE_GOAL_STATE: %d", state);
+    goal_plan_status = state;
   }
+}
 
+move_base_msgs::MoveBaseGoal getGoal(geometry_msgs::PoseStamped target_pose){
+
+  move_base_msgs::MoveBaseGoal goal;
   tf2_ros::Buffer tfBuffer;
   tf2_ros::TransformListener tfListener(tfBuffer);
   geometry_msgs::TransformStamped transformStamped;
@@ -309,14 +320,7 @@ void sendMyGoal(geometry_msgs::PoseStamped target_pose){
       goal.target_pose.pose.orientation.z, goal.target_pose.pose.orientation.w);
   ROS_INFO(" ----- Sending goal -----");
 
-  ac.sendGoal(goal);
-
-  ac.waitForResult();
-
-  if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
-    ROS_INFO("ARRIVED!");
-  else
-    ROS_INFO("FAILED!");
+  return goal;
 
 }
 
@@ -390,7 +394,7 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
       current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
       current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
 
-  sendMyGoal(current_goal_map_pose);
+  //sendMyGoal(current_goal_map_pose);
   
 }
 
@@ -403,13 +407,22 @@ int main(int argc, char **argv){
   ros::AsyncSpinner spinner(0);
   spinner.start();
 
+  initMap();
+
   //ros::Subscriber odometry_marrtino = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, currentOdometry);
   ros::Subscriber feedback = n.subscribe("/marrtino/move_base/feedback", 1, resultFeedback);
   //ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
   ros::Subscriber sub_laser = n.subscribe("/marrtino/scan", 1, laserReadCallback);
-  cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/cmd_vel", 1);
+  cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/cmd_vel", 1);  
   
+  MoveBaseClient ac("marrtino/move_base", true);
   
+  //wait for the action server to come up
+  while(!ac.waitForServer(ros::Duration(5.0))){
+    ROS_INFO("Waiting for the move_base action server to come up");
+  }
+
+
   current_goal_map_pose.header.frame_id = "marrtino_map";
   current_goal_map_pose.header.stamp = ros::Time::now();
   current_goal_map_pose.pose.position.x = -0.223;
@@ -431,11 +444,13 @@ int main(int argc, char **argv){
       current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
       current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
 
-  sendMyGoal(current_goal_map_pose);
-  
+  move_base_msgs::MoveBaseGoal final_goal = getGoal(current_goal_map_pose);
+  //ac.sendGoal(final_goal);
+
   r.sleep();
 
-  /** Status code /
+  /********* Status code *********
+    
     uint8 status
     uint8 PENDING         = 0   # The goal has yet to be processed by the action server
     uint8 ACTIVE          = 1   # The goal is currently being processed by the action server
@@ -454,57 +469,94 @@ int main(int argc, char **argv){
                                 #    and was successfully cancelled (Terminal State)
     uint8 LOST            = 9   # An action client can determine that a goal is LOST. This should not be
                                 #    sent over the wire by an action server
+
+    goal_plan_status      = -1  # Pass to the right
+                          = -2  # Pass to the left
+                          = -3  # Turn right
+                          = -4  # Turn left
+                          = -5  # Go back
+                          = -10 # Not initialized yet
+  
+  /*******************************
+
+  ac.waitForResult();
+
+  if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
+    ROS_INFO("ARRIVED!");
+  else
+    ROS_INFO("FAILED!");
+
   /**/
 
+  geometry_msgs::Twist msg;
+  //msg = find_wall();
+  
   while(ros::ok()){
-    if(goal_plan_status != -1 && goal_plan_status != 1){
-      ROS_INFO("Goal Status: %d", goal_plan_status);
-    }
-    if(current_goal_map_pose.pose.position.y > 2.7){
-      ROS_INFO(" ------------ END Narrow Passage ------------");
-      //correct_goal_pose.shutdown();
+        
+    switch (goal_plan_status){
+
+      case -10:
+        // State not initialized yet... wait
+      break;
+      case -1:
+        ac.cancelGoal();
+        ROS_INFO("Goal plan Cancelled!");
+      break;
+      case -2:
+        ac.cancelGoal();
+        ROS_INFO("Goal plan Cancelled!");
+      break;
+      case -3:
+        ac.cancelGoal();
+        ROS_INFO("Goal plan Cancelled!");
+      break;
+      case -4:
+        ac.cancelGoal();
+        ROS_INFO("Goal plan Cancelled!");
+      break;
+      case -5:
+        ac.cancelGoal();
+        ROS_INFO("Goal plan Cancelled!");
+      break;
+      case 0:
+      
+      break;
+      case 1:
+      
+      break;
+      case 2:
+      
+      break;
+      case 3:
+      
+      break;
+      case 4:
+      
+      break;
+      case 5:
+      
+      break;
+      case 6:
+      
+      break;
+      case 7:
+      
+      break;
+      case 8:
+      
+      break;
+      case 9:
+      
+      break;
+      default:
+        ROS_INFO("Unknown state - goal_plan_status: %d!", goal_plan_status);
       break;
     }
 
-  initMap();
-  ros::Duration(1).sleep();
-  ros::Rate rate(100);
-  while (ros::ok())
-  {
-      geometry_msgs::Twist msg;
-      if (global_state == 0)
-          msg = find_wall();
-      else if (global_state == 1)
-          msg = turn_left();
-      else if (global_state == 2)
-      {
-          msg = follow_the_wall();
-          continue;
-      }
-      else
-          ROS_INFO("Unknown state!");
+    cmd_pub.publish(msg);
+    ros::spinOnce();
 
-      cmd_pub.publish(msg);
-      ros::spinOnce();
-
-      rate.sleep();
-  }
-
-
-
-
-    //r.sleep();
-    /*else if(goal_plan_status == 1){
-      r.sleep();
-    }else if(goal_plan_status == 3){
-      current_goal_map_pose.pose.position.y += 0.5;
-      if(current_goal_map_pose.pose.position.y < 2.7)
-        sendMyGoal(current_goal_map_pose);
-      else
-        return 0;
-    }else{
-      //ROS_INFO("Goal Status: %d", goal_plan_status);
-    }*/
+    r.sleep();
   }
 
   ros::waitForShutdown();
