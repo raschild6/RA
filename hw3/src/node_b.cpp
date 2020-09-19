@@ -26,10 +26,11 @@ float min_obstacle_dist = 0.05, min_available_reg = 0.5;
                             front   =   [150:250]
                             left    =   [250:350]
 
-        - robot stake:  back-right  =   [42:44]
-                        front-right =   [111:115]
-                        front-left  =   [286:290]
-                        back-left   =   [357:359]
+        - robot stake:  back-right  =   [41:43]
+                        front-right =   [110:114]
+                        front-left  =   [285:289]
+                        back-left   =   [356:358]
+        (NB. start from 0 not 1) 
 */
 
 void initMap()
@@ -242,42 +243,57 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg)
       //ROS_INFO("msg at %d: %f", i, msg.ranges.at(i));
 
       // Skip robot stake ray
-      if((i >= 42 && i <= 44) || (i >= 111 && i <= 115) || (i >= 286 && i <= 290) || (i >= 357 && i <= 359))
+      if(i == 0 || (i >= 41 && i <= 43) || (i >= 110 && i <= 114) || (i >= 285 && i <= 289) || (i >= 356 && i <= 358))
         continue;
 
       if (msg.ranges.at(i) > range_min){
-        if(i == 50)
-          ROS_INFO("hi");
-        if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
-            back.push_back(msg.ranges.at(i));
-        else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
-            right.push_back(msg.ranges.at(i));
-        else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
-            front.push_back(msg.ranges.at(i));
-        else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
-            left.push_back(msg.ranges.at(i));
+        if(msg.ranges.at(i) > 12.0){
+          if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
+              back.push_back(12.0);
+          else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
+              right.push_back(12.0);
+          else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
+              front.push_back(12.0);
+          else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
+              left.push_back(12.0);
+
+        }else{
+
+          if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
+              back.push_back(msg.ranges.at(i));
+          else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
+              right.push_back(msg.ranges.at(i));
+          else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
+              front.push_back(msg.ranges.at(i));
+          else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
+              left.push_back(msg.ranges.at(i));
+        }
       }
     }
     
-    ROS_INFO("RIGHT SIZE: %d", right.size());
-    ROS_INFO("MIN: %f", *min_element(begin(right), end(right)));
-    ROS_INFO("FRONT SIZE: %d", front.size());
-    ROS_INFO("MIN: %f", *min_element(begin(front), end(front)));
-    ROS_INFO("LEFT SIZE: %d", left.size());
-    ROS_INFO("MIN: %f", *min_element(begin(left), end(left)));
-    ROS_INFO("BACK SIZE: %d", back.size());
-    ROS_INFO("MIN: %f", *min_element(begin(back), end(back)));
+
     
-    regions["right_1"] = tuple<float,float>(*min_element(begin(right), begin(right) + (right.size() / 2) - 1), accumulate(begin(right), begin(right) + (right.size() / 2) - 1, 0.0) / right.size());
-    regions["right_2"] = tuple<float,float>(*min_element(begin(right) + right.size() / 2, end(right)), accumulate(begin(right) + right.size() / 2, end(right), 0.0) / right.size());
-    regions["front_1"] = tuple<float,float>(*min_element(begin(front), begin(front) + (front.size() / 2) - 1), accumulate(begin(front), begin(front) + (front.size() / 2) - 1, 0.0) / front.size());
-    regions["front_2"] = tuple<float,float>(*min_element(begin(front) + front.size() / 2, end(front)), accumulate(begin(front) + front.size() / 2, end(front), 0.0) / front.size());
-    regions["left_1"] = tuple<float,float>(*min_element(begin(left), begin(left) + (left.size() / 2) - 1), accumulate(begin(left), begin(left) + (left.size() / 2) - 1, 0.0) / left.size());
-    regions["left_2"] = tuple<float,float>(*min_element(begin(left) + left.size() / 2, end(left)), accumulate(begin(left) + left.size() / 2, end(left), 0.0) / left.size());
-    regions["back_2"] = tuple<float,float>(*min_element(begin(back), begin(back) + (back.size() / 2) - 1), accumulate(begin(back), begin(back) + (back.size() / 2) - 1, 0.0) / back.size());
-    regions["back_1"] = tuple<float,float>(*min_element(begin(back) + back.size() / 2, end(back)), accumulate(begin(back) + back.size() / 2, end(back), 0.0) / back.size());
+    regions["right_1"] = tuple<float,float>(*min_element(begin(right), begin(right) + (right.size() / 2) - 1), accumulate(begin(right), begin(right) + (right.size() / 2) - 1, 0.0) / (right.size() / 2));
+    regions["right_2"] = tuple<float,float>(*min_element(begin(right) + right.size() / 2, end(right)), accumulate(begin(right) + right.size() / 2, end(right), 0.0) / (right.size() / 2));
+    regions["front_1"] = tuple<float,float>(*min_element(begin(front), begin(front) + (front.size() / 2) - 1), accumulate(begin(front), begin(front) + (front.size() / 2) - 1, 0.0) / (front.size() / 2));
+    regions["front_2"] = tuple<float,float>(*min_element(begin(front) + front.size() / 2, end(front)), accumulate(begin(front) + front.size() / 2, end(front), 0.0) / (front.size() / 2));
+    regions["left_1"] = tuple<float,float>(*min_element(begin(left), begin(left) + (left.size() / 2) - 1), accumulate(begin(left), begin(left) + (left.size() / 2) - 1, 0.0) / (left.size() / 2));
+    regions["left_2"] = tuple<float,float>(*min_element(begin(left) + left.size() / 2, end(left)), accumulate(begin(left) + left.size() / 2, end(left), 0.0) / (left.size() / 2));
+    regions["back_2"] = tuple<float,float>(*min_element(begin(back), begin(back) + (back.size() / 2) - 1), accumulate(begin(back), begin(back) + (back.size() / 2) - 1, 0.0) / (back.size() / 2));
+    regions["back_1"] = tuple<float,float>(*min_element(begin(back) + back.size() / 2, end(back)), accumulate(begin(back) + back.size() / 2, end(back), 0.0) / (back.size() / 2));
     // NB. back is inverted obv.
     
+
+    ROS_INFO("RIGHT_1 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
+    ROS_INFO("RIGHT_2 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
+    ROS_INFO("FRONT_1 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
+    ROS_INFO("FRONT_2 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_2"]), get<1>(regions["front_2"]));
+    ROS_INFO("LEFT_1  SIZE: %d - min, mean: %f, %f", left.size(), get<0>(regions["left_1"]), get<1>(regions["left_1"]));
+    ROS_INFO("LEFT_2  SIZE: %d - min, mean: %f, %f", left.size(), get<0>(regions["left_2"]), get<1>(regions["left_2"]));
+    ROS_INFO("BACK_1  SIZE: %d - min, mean: %f, %f", back.size(), get<0>(regions["back_1"]), get<1>(regions["back_1"]));
+    ROS_INFO("BACK_2  SIZE: %d - min, mean: %f, %f", back.size(), get<0>(regions["back_2"]), get<1>(regions["back_2"]));
+    
+
     take_action();
 }
 
