@@ -17,7 +17,8 @@ float range_min = 0;
 float range_max = 0;
 unordered_map<string, tuple<float, float>> regions;  // name_region, < min_value, mean_value >
 int global_state = 0;
-float min_obstacle_dist = 0.05, min_available_reg = 0.5;
+float min_obstacle_dist = 0.35, min_available_reg = 0.7;
+bool action_in_progress = false;
 
 /*
     Laser Scan: cycle [0:400]
@@ -126,17 +127,18 @@ void take_action(){
     for_each(regions.begin(), regions.end() , [&probably_regions](pair<string, tuple<float, float>> element){
 
       // choose possible regions -> without an obstable and with good average of free space
-      if(get<0>(element.second) >= min_obstacle_dist && get<1>(element.second) >= min_available_reg){
+      //if(get<0>(element.second) >= min_obstacle_dist && get<1>(element.second) >= min_available_reg){
+      if(get<0>(element.second) >= min_available_reg){
           probably_regions.push_back(element.first);
       }
     });
 
 
     // FRONT_2 BUSY -> FRONT_1 FREE, check RIGHT_2 
-    if(regions.find("front_1") != regions.end() && regions.find("front_2") == regions.end()){
-      if(regions.find("right_2") != regions.end()){
+    if(find(probably_regions.begin(), probably_regions.end(),"front_1") != probably_regions.end() && find(probably_regions.begin(), probably_regions.end(),"front_2") == probably_regions.end()){
+      if(find(probably_regions.begin(), probably_regions.end(),"right_2") != probably_regions.end()){
         
-        ROS_INFO("-----> pass on the right");     // enough space for traveling 
+        ROS_INFO("-----> pass on the front-right");     // enough space for traveling 
         space_states.push_back(-1);
       
       }else{
@@ -145,10 +147,10 @@ void take_action(){
     }
     
     // FRONT_1 BUSY -> FRONT_2 FREE, check LEFT_1 
-    else if(regions.find("front_2") != regions.end() && regions.find("front_1") == regions.end()){
-      if(regions.find("left_1") != regions.end()){
+    else if(find(probably_regions.begin(), probably_regions.end(),"front_2") != probably_regions.end() && find(probably_regions.begin(), probably_regions.end(),"front_1") == probably_regions.end()){
+      if(find(probably_regions.begin(), probably_regions.end(),"left_1") != probably_regions.end()){
         
-        ROS_INFO("-----> pass on the left");     // enough space for traveling 
+        ROS_INFO("-----> pass on the front-left");     // enough space for traveling 
         space_states.push_back(-2);
       
       }else{
@@ -157,8 +159,8 @@ void take_action(){
     }
 
     // FRONT_1, FRONT_2 BUSY -> check RIGHT_1, RIGHT_2 
-    else if(regions.find("right_1") != regions.end()){
-      if(regions.find("right_2") != regions.end()){
+    else if(find(probably_regions.begin(), probably_regions.end(),"right_1") != probably_regions.end()){
+      if(find(probably_regions.begin(), probably_regions.end(),"right_2") != probably_regions.end()){
         
         ROS_INFO("-----> turn right");     // enough space for traveling 
         space_states.push_back(-3);
@@ -169,8 +171,8 @@ void take_action(){
     }
     
     // FRONT_1, FRONT_2 BUSY -> check also LEFT_1, LEFT_2
-    if(regions.find("left_1") != regions.end()){
-      if(regions.find("left_2") != regions.end()){
+    if(find(probably_regions.begin(), probably_regions.end(),"left_1") != probably_regions.end()){
+      if(find(probably_regions.begin(), probably_regions.end(),"left_2") != probably_regions.end()){
         
         ROS_INFO("-----> turn_left");     // enough space for traveling 
         space_states.push_back(-4);
@@ -182,8 +184,8 @@ void take_action(){
     
     // FRONT, RIGHT, LEFT BUSY -> check BACK_1, BACK_2
     if(come_back != 2){
-      if(regions.find("back_1") != regions.end()){
-        if(regions.find("back_2") != regions.end()){
+      if(find(probably_regions.begin(), probably_regions.end(),"back_1") != probably_regions.end()){
+        if(find(probably_regions.begin(), probably_regions.end(),"back_2") != probably_regions.end()){
           
           ROS_INFO("-----> go back");     // enough space for traveling 
           space_states.push_back(-5);
@@ -201,6 +203,7 @@ void take_action(){
     
     if(space_states.size() != 0)
       goal_plan_status = space_states[0];
+      action_in_progress = true;
     else
       ROS_INFO("space_states empty");
   }
@@ -209,92 +212,111 @@ void take_action(){
 
 }
 
-geometry_msgs::Twist find_wall()
+geometry_msgs::Twist turn_right()
 {
-    geometry_msgs::Twist msg;
-    msg.linear.x = 0.1;
-    msg.angular.z = -0.1;
-    return msg;
+  geometry_msgs::Twist msg;
+  msg.angular.z = -0.2;
+  return msg;
 }
 geometry_msgs::Twist turn_left()
 {
-    geometry_msgs::Twist msg;
-    msg.angular.z = 0.1;
-    return msg;
+  geometry_msgs::Twist msg;
+  msg.angular.z = 0.2;
+  return msg;
 }
-geometry_msgs::Twist follow_the_wall()
+geometry_msgs::Twist done()
 {
-    geometry_msgs::Twist msg;
-    msg.linear.x = 0.5;
-    return msg;
+  geometry_msgs::Twist msg;
+  twist_msg.linear.x = 0;
+  twist_msg.angular.z = 0;
+  return msg;
 }
-void laserReadCallback(const sensor_msgs::LaserScan &msg)
-{
-    ROS_INFO("LASER READ");
-    range_min = msg.range_min;
-    range_max = msg.range_max;
-    float angle_min = msg.angle_min;
-    float angle_max = msg.angle_max;
-    float angle_increment = msg.angle_increment;
-    vector<float> right, front, left, back = {};
-    ROS_INFO("LASER RAYS: %d", msg.ranges.size());
-    for (int i = 0; i < msg.ranges.size(); i++){
-      
-      //ROS_INFO("msg at %d: %f", i, msg.ranges.at(i));
 
-      // Skip robot stake ray
-      if(i == 0 || (i >= 41 && i <= 43) || (i >= 110 && i <= 114) || (i >= 285 && i <= 289) || (i >= 356 && i <= 358))
-        continue;
+void laserReadCallback(const sensor_msgs::LaserScan &msg){
+  //ROS_INFO("LASER READ");
+  range_min = msg.range_min;
+  range_max = msg.range_max;
+  float angle_min = msg.angle_min;
+  float angle_max = msg.angle_max;
+  float angle_increment = msg.angle_increment;
+  vector<float> right, front, left, back = {};
+  //ROS_INFO("LASER RAYS: %d", msg.ranges.size());
+  for (int i = 0; i < msg.ranges.size(); i++){
+    
+    //ROS_INFO("msg at %d: %f", i, msg.ranges.at(i));
 
-      if (msg.ranges.at(i) > range_min){
-        if(msg.ranges.at(i) > 12.0){
-          if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
-              back.push_back(12.0);
-          else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
-              right.push_back(12.0);
-          else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
-              front.push_back(12.0);
-          else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
-              left.push_back(12.0);
+    // Skip robot stake ray
+    if(i == 0 || (i >= 41 && i <= 43) || (i >= 110 && i <= 114) || (i >= 285 && i <= 289) || (i >= 356 && i <= 358))
+      continue;
 
-        }else{
+    if (msg.ranges.at(i) > range_min){
+      if(msg.ranges.at(i) > 12.0){
+        if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
+            back.push_back(12.0);
+        else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
+            right.push_back(12.0);
+        else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
+            front.push_back(12.0);
+        else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
+            left.push_back(12.0);
 
-          if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
-              back.push_back(msg.ranges.at(i));
-          else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
-              right.push_back(msg.ranges.at(i));
-          else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
-              front.push_back(msg.ranges.at(i));
-          else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
-              left.push_back(msg.ranges.at(i));
-        }
+      }else{
+
+        if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
+            back.push_back(msg.ranges.at(i));
+        else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
+            right.push_back(msg.ranges.at(i));
+        else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
+            front.push_back(msg.ranges.at(i));
+        else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
+            left.push_back(msg.ranges.at(i));
       }
     }
-    
+  }
+  
 
-    
-    regions["right_1"] = tuple<float,float>(*min_element(begin(right), begin(right) + (right.size() / 2) - 1), accumulate(begin(right), begin(right) + (right.size() / 2) - 1, 0.0) / (right.size() / 2));
-    regions["right_2"] = tuple<float,float>(*min_element(begin(right) + right.size() / 2, end(right)), accumulate(begin(right) + right.size() / 2, end(right), 0.0) / (right.size() / 2));
-    regions["front_1"] = tuple<float,float>(*min_element(begin(front), begin(front) + (front.size() / 2) - 1), accumulate(begin(front), begin(front) + (front.size() / 2) - 1, 0.0) / (front.size() / 2));
-    regions["front_2"] = tuple<float,float>(*min_element(begin(front) + front.size() / 2, end(front)), accumulate(begin(front) + front.size() / 2, end(front), 0.0) / (front.size() / 2));
-    regions["left_1"] = tuple<float,float>(*min_element(begin(left), begin(left) + (left.size() / 2) - 1), accumulate(begin(left), begin(left) + (left.size() / 2) - 1, 0.0) / (left.size() / 2));
-    regions["left_2"] = tuple<float,float>(*min_element(begin(left) + left.size() / 2, end(left)), accumulate(begin(left) + left.size() / 2, end(left), 0.0) / (left.size() / 2));
-    regions["back_2"] = tuple<float,float>(*min_element(begin(back), begin(back) + (back.size() / 2) - 1), accumulate(begin(back), begin(back) + (back.size() / 2) - 1, 0.0) / (back.size() / 2));
-    regions["back_1"] = tuple<float,float>(*min_element(begin(back) + back.size() / 2, end(back)), accumulate(begin(back) + back.size() / 2, end(back), 0.0) / (back.size() / 2));
-    // NB. back is inverted obv.
-    
+  
+  regions["right_1"] = tuple<float,float>(*min_element(begin(right), begin(right) + (right.size() / 2) - 1), accumulate(begin(right), begin(right) + (right.size() / 2) - 1, 0.0) / (right.size() / 2));
+  regions["right_2"] = tuple<float,float>(*min_element(begin(right) + right.size() / 2, end(right)), accumulate(begin(right) + right.size() / 2, end(right), 0.0) / (right.size() / 2));
+  regions["front_1"] = tuple<float,float>(*min_element(begin(front), begin(front) + (front.size() / 2) - 1), accumulate(begin(front), begin(front) + (front.size() / 2) - 1, 0.0) / (front.size() / 2));
+  regions["front_2"] = tuple<float,float>(*min_element(begin(front) + front.size() / 2, end(front)), accumulate(begin(front) + front.size() / 2, end(front), 0.0) / (front.size() / 2));
+  regions["left_1"] = tuple<float,float>(*min_element(begin(left), begin(left) + (left.size() / 2) - 1), accumulate(begin(left), begin(left) + (left.size() / 2) - 1, 0.0) / (left.size() / 2));
+  regions["left_2"] = tuple<float,float>(*min_element(begin(left) + left.size() / 2, end(left)), accumulate(begin(left) + left.size() / 2, end(left), 0.0) / (left.size() / 2));
+  regions["back_2"] = tuple<float,float>(*min_element(begin(back), begin(back) + (back.size() / 2) - 1), accumulate(begin(back), begin(back) + (back.size() / 2) - 1, 0.0) / (back.size() / 2));
+  regions["back_1"] = tuple<float,float>(*min_element(begin(back) + back.size() / 2, end(back)), accumulate(begin(back) + back.size() / 2, end(back), 0.0) / (back.size() / 2));
+  // NB. back is inverted obv.
+  
+  /** /
+  ROS_INFO("RIGHT_1 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
+  ROS_INFO("RIGHT_2 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
+  ROS_INFO("FRONT_1 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
+  ROS_INFO("FRONT_2 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_2"]), get<1>(regions["front_2"]));
+  ROS_INFO("LEFT_1  SIZE: %d - min, mean: %f, %f", left.size(), get<0>(regions["left_1"]), get<1>(regions["left_1"]));
+  ROS_INFO("LEFT_2  SIZE: %d - min, mean: %f, %f", left.size(), get<0>(regions["left_2"]), get<1>(regions["left_2"]));
+  ROS_INFO("BACK_1  SIZE: %d - min, mean: %f, %f", back.size(), get<0>(regions["back_1"]), get<1>(regions["back_1"]));
+  ROS_INFO("BACK_2  SIZE: %d - min, mean: %f, %f", back.size(), get<0>(regions["back_2"]), get<1>(regions["back_2"]));
+  /**/
 
-    ROS_INFO("RIGHT_1 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
-    ROS_INFO("RIGHT_2 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
-    ROS_INFO("FRONT_1 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
-    ROS_INFO("FRONT_2 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_2"]), get<1>(regions["front_2"]));
-    ROS_INFO("LEFT_1  SIZE: %d - min, mean: %f, %f", left.size(), get<0>(regions["left_1"]), get<1>(regions["left_1"]));
-    ROS_INFO("LEFT_2  SIZE: %d - min, mean: %f, %f", left.size(), get<0>(regions["left_2"]), get<1>(regions["left_2"]));
-    ROS_INFO("BACK_1  SIZE: %d - min, mean: %f, %f", back.size(), get<0>(regions["back_1"]), get<1>(regions["back_1"]));
-    ROS_INFO("BACK_2  SIZE: %d - min, mean: %f, %f", back.size(), get<0>(regions["back_2"]), get<1>(regions["back_2"]));
-    
-
+  if(!action_in_progress){  
     take_action();
+  }else{
+    switch (goal_plan_status){
+
+      case -1:
+      break;
+      case -2:
+      break;
+      case -3:
+        
+      break;
+      case -4:
+      break;
+      case -5:
+      break;
+      default:
+      break;
+    }
+  }
 }
 
 
@@ -419,7 +441,7 @@ int main(int argc, char **argv){
   ros::init(argc, argv, "simple_navigation_goals");
   ros::NodeHandle n;
   
-  ros::Rate r(50);
+  ros::Rate r(10);
   ros::AsyncSpinner spinner(0);
   spinner.start();
 
@@ -505,7 +527,6 @@ int main(int argc, char **argv){
   /**/
 
   geometry_msgs::Twist msg;
-  //msg = find_wall();
   
   while(ros::ok()){
         
@@ -515,24 +536,31 @@ int main(int argc, char **argv){
         // State not initialized yet... wait
       break;
       case -1:
-        ac.cancelGoal();
+        //ac.cancelGoal();
         ROS_INFO("Goal plan Cancelled!");
+        action_in_progress = false;
       break;
       case -2:
-        ac.cancelGoal();
+        //ac.cancelGoal();
         ROS_INFO("Goal plan Cancelled!");
+        action_in_progress = false;
       break;
       case -3:
-        ac.cancelGoal();
+        //ac.cancelGoal();
         ROS_INFO("Goal plan Cancelled!");
+        msg = find_wall();
+        action_in_progress = false;
       break;
       case -4:
-        ac.cancelGoal();
+        //ac.cancelGoal();
         ROS_INFO("Goal plan Cancelled!");
+        msg = find_wall();
+        action_in_progress = false;
       break;
       case -5:
-        ac.cancelGoal();
+        //ac.cancelGoal();
         ROS_INFO("Goal plan Cancelled!");
+        action_in_progress = false;
       break;
       case 0:
       
@@ -544,7 +572,8 @@ int main(int argc, char **argv){
       
       break;
       case 3:
-      
+        ROS_INFO("Goal plan Reached!");
+        return 0;
       break;
       case 4:
       
