@@ -301,7 +301,7 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
   regions["back_1"] = tuple<float,float>(*min_element(begin(back) + back.size() / 2, end(back)), accumulate(begin(back) + back.size() / 2, end(back), 0.0) / (back.size() / 2));
   // NB. back is inverted obv.
   
-  /**/
+  /** /
   ROS_INFO("RIGHT_1 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
   ROS_INFO("RIGHT_2 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
   ROS_INFO("FRONT_1 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
@@ -502,7 +502,7 @@ int main(int argc, char **argv){
       current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
 
   move_base_msgs::MoveBaseGoal final_goal = getGoal(current_goal_map_pose);
-  //ac.sendGoal(final_goal);
+  ac.sendGoal(final_goal);
 
   r.sleep();
 
@@ -563,17 +563,21 @@ int main(int argc, char **argv){
         action_in_progress = false;
       break;
       case -3:
-        //ac.cancelGoal();
-        //ROS_INFO("Goal plan Cancelled!");
+        ac.cancelGoal();
+        ROS_INFO("Goal plan Cancelled!");
         ROS_INFO("Start turn right!");
         turn_right_plan();
         action_in_progress = false;
+        goal_plan_status = -10;
+        ac.sendGoal(final_goal);
       break;
       case -4:
-        //ac.cancelGoal();
-        //ROS_INFO("Goal plan Cancelled!");
+        ac.cancelGoal();
+        ROS_INFO("Goal plan Cancelled!");
         ROS_INFO("Start turn left!");
         action_in_progress = false;
+        goal_plan_status = -10;
+        ac.sendGoal(final_goal);
       break;
       case -5:
         //ac.cancelGoal();
