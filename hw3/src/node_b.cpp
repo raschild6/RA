@@ -190,10 +190,10 @@ bool turn_right_plan(){
   cmd_pub.publish(msg);
   
   // rotate robot until front object disappear from front_1/front_2 
-  while(action_step == 1){
+  while(action_step == 0){
     ros::Duration(1).sleep();
   }
-  double rotate_time = rotate_time_start - ros::Time::now().toSec();
+  double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
   cmd_pub.publish(msg);
   ROS_INFO("Rotation right completed");
@@ -222,10 +222,10 @@ bool turn_left_plan(){
   cmd_pub.publish(msg);
   
   // rotate robot until front object disappear from front_1/front_2 
-  while(action_step == 1){
+  while(action_step == 0){
     ros::Duration(1).sleep();
   }
-  double rotate_time = rotate_time_start - ros::Time::now().toSec();
+  double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
   cmd_pub.publish(msg);
   ROS_INFO("Rotation left completed");
@@ -301,7 +301,7 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
   regions["back_1"] = tuple<float,float>(*min_element(begin(back) + back.size() / 2, end(back)), accumulate(begin(back) + back.size() / 2, end(back), 0.0) / (back.size() / 2));
   // NB. back is inverted obv.
   
-  /** /
+  /**/
   ROS_INFO("RIGHT_1 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
   ROS_INFO("RIGHT_2 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
   ROS_INFO("FRONT_1 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
