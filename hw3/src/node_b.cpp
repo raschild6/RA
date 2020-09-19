@@ -143,29 +143,57 @@ void take_action(){
       ROS_INFO("\t\t state: %d", state);
     }
     
-    if(space_states.size() != 0)
+    if(space_states.size() != 0){
       goal_plan_status = space_states[0];   // per ora scegli la prima soluzione trovata
       action_in_progress = true;
-    else
+    }else{
       ROS_INFO("space_states empty");
+    }
   }
 
   
 
 }
 
+
+geometry_msgs::Twist turn_right()
+{
+  geometry_msgs::Twist msg;
+  msg.angular.z = -0.2;
+  return msg;
+}
+geometry_msgs::Twist turn_left()
+{
+  geometry_msgs::Twist msg;
+  msg.angular.z = 0.2;
+  return msg;
+}
+geometry_msgs::Twist go_straight_ahead()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = 0.5;
+  return msg;
+}
+geometry_msgs::Twist done()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = 0;
+  msg.angular.z = 0;
+  return msg;
+}
+
 bool turn_right_plan(){
   geometry_msgs::Twist msg;
   
   msg = turn_right();
-  ros::Time rotate_time_start = ros::Time::now();
+  double rotate_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
   
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 1){
     ros::Duration(1).sleep();
   }
-  ros::Time rotate_time = rotate_time_start - ros::Time::now();
+  double rotate_time = rotate_time_start - ros::Time::now().toSec();
   msg = done();
   cmd_pub.publish(msg);
   ROS_INFO("Rotation right completed");
@@ -190,14 +218,14 @@ bool turn_left_plan(){
   geometry_msgs::Twist msg;
   
   msg = turn_left();
-  ros::Time rotate_time_start = ros::Time::now();
+  double rotate_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
   
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 1){
     ros::Duration(1).sleep();
   }
-  ros::Time rotate_time = rotate_time_start - ros::Time::now();
+  double rotate_time = rotate_time_start - ros::Time::now().toSec();
   msg = done();
   cmd_pub.publish(msg);
   ROS_INFO("Rotation left completed");
@@ -217,32 +245,6 @@ bool turn_left_plan(){
   ROS_INFO("Rotation right_back completed");
 
   return true;
-}
-
-geometry_msgs::Twist turn_right()
-{
-  geometry_msgs::Twist msg;
-  msg.angular.z = -0.2;
-  return msg;
-}
-geometry_msgs::Twist turn_left()
-{
-  geometry_msgs::Twist msg;
-  msg.angular.z = 0.2;
-  return msg;
-}
-geometry_msgs::Twist go_straight_ahead()
-{
-  geometry_msgs::Twist msg;
-  msg.linear.x = 0.5;
-  return msg;
-}
-geometry_msgs::Twist done()
-{
-  geometry_msgs::Twist msg;
-  twist_msg.linear.x = 0;
-  twist_msg.angular.z = 0;
-  return msg;
 }
 
 void laserReadCallback(const sensor_msgs::LaserScan &msg){
