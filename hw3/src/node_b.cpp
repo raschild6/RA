@@ -8,31 +8,32 @@ geometry_msgs::Pose current_amcl_pose;
 geometry_msgs::PoseStamped current_goal_map_pose;
 
 bool amcl_set = false;
-int goal_plan_status = -10;
-
+bool local_plan = false;
+int goal_plan_status = -10, avoid_obj_plan_status = -10;
 
 /**** LASER ****/
 ros::Publisher cmd_pub;
 float range_min = 0;
 float range_max = 0;
-unordered_map<string, tuple<float, float>> regions;  // name_region, < min_value, mean_value >
+unordered_map<string, tuple<float, float>> regions;  // name_region, < min_value, average_value >
 int global_state = 0;
-float min_obstacle_dist = 0.35, min_available_reg = 0.7;
+float min_obstacle_dist = 0.25, min_available_reg = 0.5, min_space_avail = 0.4, lethal_dist = 0.1;
 bool action_in_progress = false;
 int action_step = 0;
+bool action_internal_condition = true;  // used to increase action_step for case -1, -2 (can't use if-else, it's an error)
 
 /*
-    Laser Scan: cycle [0:400]
-                degree ->   back    =   [350:50]
-                            right   =   [50:150]
-                            front   =   [150:250]
-                            left    =   [250:350]
+  Laser Scan: cycle [1:400]
+              degree ->   back    =   [350:50]
+                          right   =   [50:150]
+                          front   =   [150:250]
+                          left    =   [250:350]
 
-        - robot stake:  back-right  =   [41:43]
-                        front-right =   [110:114]
-                        front-left  =   [285:289]
-                        back-left   =   [356:358]
-        (NB. start from 0 not 1) 
+      - robot stake:  back-right  =   [41:43]
+                      front-right =   [110:114]
+                      front-left  =   [285:289]
+                      back-left   =   [356:358]
+      (NB. start from 0 not 1) 
 */
 
 void initMap()
@@ -101,7 +102,7 @@ void take_action(){
     }
 
     // FRONT_1, FRONT_2 BUSY -> check RIGHT_1, RIGHT_2 
-    else if(find(probably_regions.begin(), probably_regions.end(),"right_1") != probably_regions.end()){
+    if(find(probably_regions.begin(), probably_regions.end(),"right_1") != probably_regions.end()){
       if(find(probably_regions.begin(), probably_regions.end(),"right_2") != probably_regions.end()){
         
         ROS_INFO("-----> turn right");     // enough space for traveling 
@@ -123,7 +124,7 @@ void take_action(){
         // decidere che fare?
       }
     }
-    
+
     // FRONT, RIGHT, LEFT BUSY -> check BACK_1, BACK_2
     if(come_back == 0){
       if(find(probably_regions.begin(), probably_regions.end(),"back_1") != probably_regions.end()){
@@ -144,7 +145,28 @@ void take_action(){
     }
     
     if(space_states.size() != 0){
-      goal_plan_status = space_states[0];   // per ora scegli la prima soluzione trovata
+      
+      // prefer to pass in front of right/left, if possible
+      if(space_states[0] == -1 || space_states[0] == -2){
+        avoid_obj_plan_status = space_states[0];
+        ROS_INFO("Front-Right/Left free -> take it");
+      }else{ 
+        // if not, but right and left both free -> get one with highest average 
+        if(come_back == 2){
+          if(get<1>(regions["right_1"]) + get<1>(regions["right_2"]) > get<1>(regions["left_1"]) + get<1>(regions["left_2"])){
+            avoid_obj_plan_status = -3;
+            ROS_INFO("Right and Left free -> take Right, which has highest average");
+          }else{
+            avoid_obj_plan_status = -4;
+            ROS_INFO("Right and Left free -> take Left, which has highest average");
+          }
+        }else{
+          // only right or left is free -> take it
+          // if only back is available -> take it anyway 
+          avoid_obj_plan_status = space_states[0];
+        }
+      }
+
       action_in_progress = true;
     }else{
       ROS_INFO("space_states empty");
@@ -159,19 +181,39 @@ void take_action(){
 geometry_msgs::Twist turn_right()
 {
   geometry_msgs::Twist msg;
-  msg.angular.z = -0.2;
+  msg.angular.z = -0.4;
   return msg;
 }
 geometry_msgs::Twist turn_left()
 {
   geometry_msgs::Twist msg;
-  msg.angular.z = 0.2;
+  msg.angular.z = 0.4;
+  return msg;
+}
+geometry_msgs::Twist turn_front_right()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = 0.4;
+  msg.angular.z = -0.4;
+  return msg;
+}
+geometry_msgs::Twist turn_front_left()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = 0.4;
+  msg.angular.z = 0.4;
   return msg;
 }
 geometry_msgs::Twist go_straight_ahead()
 {
   geometry_msgs::Twist msg;
-  msg.linear.x = 0.5;
+  msg.linear.x = 0.4;
+  return msg;
+}
+geometry_msgs::Twist go_back()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = -0.4;
   return msg;
 }
 geometry_msgs::Twist done()
@@ -185,6 +227,14 @@ geometry_msgs::Twist done()
 bool turn_right_plan(){
   geometry_msgs::Twist msg;
   
+  msg = go_back();
+  cmd_pub.publish(msg);
+  ros::Duration(0.3).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ros::Duration(1).sleep();
+  ROS_INFO("Back a little completed");
+  
   msg = turn_right();
   double rotate_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
@@ -193,6 +243,7 @@ bool turn_right_plan(){
   while(action_step == 0){
     ros::Duration(1).sleep();
   }
+  action_step = 0;
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
   cmd_pub.publish(msg);
@@ -212,19 +263,30 @@ bool turn_right_plan(){
   cmd_pub.publish(msg);
   ROS_INFO("Rotation left_back completed");
 
+  ROS_INFO("Turn Right completed");
+  
   return true;
 }
 bool turn_left_plan(){
   geometry_msgs::Twist msg;
   
+  msg = go_back();
+  cmd_pub.publish(msg);
+  ros::Duration(0.3).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ros::Duration(1).sleep();
+  ROS_INFO("Back a little completed");
+  
   msg = turn_left();
   double rotate_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
-  
+
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 0){
     ros::Duration(1).sleep();
   }
+  action_step = 0;
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
   cmd_pub.publish(msg);
@@ -244,7 +306,155 @@ bool turn_left_plan(){
   cmd_pub.publish(msg);
   ROS_INFO("Rotation right_back completed");
 
+  ROS_INFO("Turn Left completed");
+
   return true;
+}
+bool turn_front_right_plan(){
+  geometry_msgs::Twist msg;
+  
+  msg = go_back();
+  cmd_pub.publish(msg);
+  ros::Duration(0.25).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Back a little completed");
+  ros::Duration(0.5).sleep();
+
+  msg = turn_right();
+  double rotate_time_start = ros::Time::now().toSec();
+  cmd_pub.publish(msg);
+  
+  // wait until front object disappear from front_2 or timeout
+  while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 2){
+    action_internal_condition = false;
+    ros::Duration(0.5).sleep();
+  }
+  double rotate_time = ros::Time::now().toSec() - rotate_time_start;
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("End first right rotation completed");
+  ros::Duration(0.5).sleep();
+
+  msg = go_straight_ahead();
+  cmd_pub.publish(msg);
+
+  // wait until object appear in back_1 
+  while(action_step != 2){
+    ros::Duration(0.5).sleep();
+  }
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Go ahead completed");
+  ros::Duration(0.5).sleep();
+  
+  msg = turn_left();
+  cmd_pub.publish(msg);
+  ros::Duration(2*rotate_time).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("End back left rotation completed");
+  ros::Duration(0.5).sleep();
+
+  action_step = 0;
+  action_internal_condition = true;
+  return true;
+}
+bool turn_front_left_plan(){
+  geometry_msgs::Twist msg;
+  
+  msg = go_back();
+  cmd_pub.publish(msg);
+  ros::Duration(0.25).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Back a little completed");
+  ros::Duration(0.5).sleep();
+
+  msg = turn_left();
+  double rotate_time_start = ros::Time::now().toSec();
+  cmd_pub.publish(msg);
+  
+  // wait until front object disappear from front_2 timeout
+  while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 2 ){
+    action_internal_condition = false;
+    ros::Duration(0.5).sleep();
+  }
+  double rotate_time = ros::Time::now().toSec() - rotate_time_start;
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("End first left rotation completed");
+  ros::Duration(0.5).sleep();
+
+  msg = go_straight_ahead();
+  cmd_pub.publish(msg);
+
+  // wait until object appear in back_1 
+  while(action_step != 2){
+    ros::Duration(0.5).sleep();
+  }
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Go ahead completed");
+  ros::Duration(0.5).sleep();
+  
+  msg = turn_right();
+  cmd_pub.publish(msg);
+  ros::Duration(2*rotate_time).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("End back right rotation completed");
+  ros::Duration(0.5).sleep();
+
+  action_step = 0;
+  action_internal_condition = true;
+  return true;
+}
+bool go_back_plan(){
+  geometry_msgs::Twist msg;
+  
+  msg = go_back();
+  double back_time_start = ros::Time::now().toSec();
+  cmd_pub.publish(msg);
+  
+  // robot go back until an object appear in back_1 or back_2, or timeout 
+  while(action_step == 0 && ros::Time::now().toSec() - back_time_start < 5){
+    ros::Duration(1).sleep();
+  }
+  action_step = 0;
+  msg = done();
+  cmd_pub.publish(msg);
+  ros::Duration(1).sleep();
+
+  // look right and left if possible to turn somewhere
+  // left free
+  if(get<0>(regions["left_1"]) > min_available_reg && get<0>(regions["left_2"]) > min_available_reg){
+    // right free too
+    if(get<0>(regions["left_1"]) > min_available_reg && get<0>(regions["left_2"]) > min_available_reg){
+      // choose one with highest average
+      if(get<1>(regions["right_1"]) + get<1>(regions["right_2"]) > get<1>(regions["left_1"]) + get<1>(regions["left_2"])){
+        avoid_obj_plan_status = -3;
+        ROS_INFO("Right and Left free -> take Right, which has highest average");
+        turn_right_plan();
+      }else{
+        avoid_obj_plan_status = -4;
+        ROS_INFO("Right and Left free -> take Left, which has highest average");
+        turn_left_plan();
+      }
+    }else{  // right full, left free
+      avoid_obj_plan_status = -4;
+      ROS_INFO("Right full -> turn Left");
+      turn_left_plan();
+    }
+  }else
+    // left full, right free
+    if(get<0>(regions["left_1"]) > min_available_reg && get<0>(regions["left_2"]) > min_available_reg){
+       avoid_obj_plan_status = -3;
+       ROS_INFO("Left full -> turn Right");
+       turn_right_plan();
+    }
+
+  ROS_INFO("Back completed");
 }
 
 void laserReadCallback(const sensor_msgs::LaserScan &msg){
@@ -263,6 +473,13 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
     // Skip robot stake ray
     if(i == 0 || (i >= 41 && i <= 43) || (i >= 110 && i <= 114) || (i >= 285 && i <= 289) || (i >= 356 && i <= 358))
       continue;
+
+    if(msg.ranges.at(i) <= lethal_dist){
+      cmd_pub.publish(done());
+      ROS_INFO("LETHAL DISTANCE OF RAY: %d !!! Interrupt all..", i);
+      return;
+    }
+
 
     if (msg.ranges.at(i) > range_min){
       if(msg.ranges.at(i) > 12.0){
@@ -302,35 +519,55 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
   // NB. back is inverted obv.
   
   /** /
-  ROS_INFO("RIGHT_1 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
-  ROS_INFO("RIGHT_2 SIZE: %d - min, mean: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
-  ROS_INFO("FRONT_1 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
-  ROS_INFO("FRONT_2 SIZE: %d - min, mean: %f, %f", front.size(), get<0>(regions["front_2"]), get<1>(regions["front_2"]));
-  ROS_INFO("LEFT_1  SIZE: %d - min, mean: %f, %f", left.size(), get<0>(regions["left_1"]), get<1>(regions["left_1"]));
-  ROS_INFO("LEFT_2  SIZE: %d - min, mean: %f, %f", left.size(), get<0>(regions["left_2"]), get<1>(regions["left_2"]));
-  ROS_INFO("BACK_1  SIZE: %d - min, mean: %f, %f", back.size(), get<0>(regions["back_1"]), get<1>(regions["back_1"]));
-  ROS_INFO("BACK_2  SIZE: %d - min, mean: %f, %f", back.size(), get<0>(regions["back_2"]), get<1>(regions["back_2"]));
+  ROS_INFO("RIGHT_1 SIZE: %d - min, average: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
+  ROS_INFO("RIGHT_2 SIZE: %d - min, average: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
+  ROS_INFO("FRONT_1 SIZE: %d - min, average: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
+  ROS_INFO("FRONT_2 SIZE: %d - min, average: %f, %f", front.size(), get<0>(regions["front_2"]), get<1>(regions["front_2"]));
+  ROS_INFO("LEFT_1  SIZE: %d - min, average: %f, %f", left.size(), get<0>(regions["left_1"]), get<1>(regions["left_1"]));
+  ROS_INFO("LEFT_2  SIZE: %d - min, average: %f, %f", left.size(), get<0>(regions["left_2"]), get<1>(regions["left_2"]));
+  ROS_INFO("BACK_1  SIZE: %d - min, average: %f, %f", back.size(), get<0>(regions["back_1"]), get<1>(regions["back_1"]));
+  ROS_INFO("BACK_2  SIZE: %d - min, average: %f, %f", back.size(), get<0>(regions["back_2"]), get<1>(regions["back_2"]));
   /**/
 
   if(!action_in_progress){  
     take_action();
   }else{
-    switch (goal_plan_status){
-
+    switch (avoid_obj_plan_status){
       case -1:
+        // rotate until obj disappear from front_2
+        if(get<0>(regions["front_2"]) >= 1.5*min_obstacle_dist && action_internal_condition)
+          action_step = 1;
+        
+        // check when obj enter in back_1
+        if(get<0>(regions["back_1"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
+          action_step = 2;
+          
       break;
       case -2:
+        // rotate until obj disappear from front_1
+        if(get<0>(regions["front_1"]) >= 1.5*min_obstacle_dist && action_internal_condition)       
+          action_step = 1;
+
+        // check when obj enter in back_2
+        if(get<0>(regions["back_2"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
+          action_step = 2;
+
       break;
       case -3:
         // check front_1/front_2 free
-        if(get<0>(regions["front_1"]) >= min_available_reg && get<0>(regions["front_2"]) >= min_available_reg)
+        if(get<0>(regions["front_1"]) >= min_space_avail && get<0>(regions["front_2"]) >= min_space_avail)
           action_step = 1;
       break;
       case -4:
-        if(get<0>(regions["front_1"]) >= min_available_reg && get<0>(regions["front_2"]) >= min_available_reg)
+        // check front_1/front_2 free
+        if(get<0>(regions["front_1"]) >= min_space_avail && get<0>(regions["front_2"]) >= min_space_avail)
           action_step = 1;
       break;
       case -5:
+        // check back_1/back_2 until find object
+        if(get<0>(regions["back_1"]) <= min_space_avail || get<0>(regions["back_2"]) <= min_space_avail)
+          action_step = 1;
+        
       break;
       default:
       break;
@@ -341,9 +578,9 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
 
 void change_goal_state(int state){
   
-  if (state != goal_plan_status){
+  if (state != avoid_obj_plan_status){
     ROS_INFO("CHANGE_GOAL_STATE: %d", state);
-    goal_plan_status = state;
+    avoid_obj_plan_status = state;
   }
 }
 
@@ -381,10 +618,12 @@ move_base_msgs::MoveBaseGoal getGoal(geometry_msgs::PoseStamped target_pose){
 
 }
 
-void resultFeedback(const move_base_msgs::MoveBaseActionFeedback::ConstPtr &feedback_msgs){
+void resultGoalsStatus(const actionlib_msgs::GoalStatusArray::ConstPtr &goals_status_msgs){
 
-  move_base_msgs::MoveBaseActionFeedback  feedback = *feedback_msgs;
-  goal_plan_status = feedback.status.status;
+  actionlib_msgs::GoalStatusArray goals_status_array = *goals_status_msgs;
+  vector<actionlib_msgs::GoalStatus> goals_list = goals_status_array.status_list; 
+  if(goals_list.size() != 0)
+    goal_plan_status = goals_list.at(goals_list.size() - 1).status;
 }
 
 void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &amcl_pose_msgs){
@@ -462,15 +701,16 @@ int main(int argc, char **argv){
   
   ros::Rate r(10);
   ros::AsyncSpinner spinner(0);
-  spinner.start();
 
   initMap();
 
   //ros::Subscriber odometry_marrtino = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, currentOdometry);
-  ros::Subscriber feedback = n.subscribe("/marrtino/move_base/feedback", 1, resultFeedback);
   //ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
+  ros::Subscriber goals_status = n.subscribe("/marrtino/move_base/status", 1, resultGoalsStatus);
   ros::Subscriber sub_laser = n.subscribe("/marrtino/scan", 1, laserReadCallback);
-  cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/cmd_vel", 1);  
+  cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/move_base/cmd_vel", 1);
+  
+  //ros::Publisher cancel_goal = n.advertise<actionlib_msgs::GoalID>("/marrtino/move_base/cancel", 1);    ---> NOT WORK  
   
   MoveBaseClient ac("marrtino/move_base", true);
   
@@ -482,10 +722,14 @@ int main(int argc, char **argv){
 
   current_goal_map_pose.header.frame_id = "marrtino_map";
   current_goal_map_pose.header.stamp = ros::Time::now();
-  current_goal_map_pose.pose.position.x = -0.223;
-  current_goal_map_pose.pose.position.y = 1.034;
+  // --- Before final platforms, in the middle 
+  //current_goal_map_pose.pose.position.x = -0.223;
+  //current_goal_map_pose.pose.position.y = 1.034;
+  current_goal_map_pose.pose.position.x = 1.243;
+  current_goal_map_pose.pose.position.y = 2.415;
   current_goal_map_pose.pose.position.z = 0.0;
-  current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+  //current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+  current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(M_PI/2);
   
   // --- GREEN final platform left
   //target_pose.position.x = 0.101878;
@@ -503,7 +747,6 @@ int main(int argc, char **argv){
 
   move_base_msgs::MoveBaseGoal final_goal = getGoal(current_goal_map_pose);
   ac.sendGoal(final_goal);
-
   r.sleep();
 
   /********* Status code *********
@@ -527,7 +770,7 @@ int main(int argc, char **argv){
     uint8 LOST            = 9   # An action client can determine that a goal is LOST. This should not be
                                 #    sent over the wire by an action server
 
-    goal_plan_status      = -1  # Pass to the right
+    avoid_obj_plan_status = -1  # Pass to the right
                           = -2  # Pass to the left
                           = -3  # Turn right
                           = -4  # Turn left
@@ -545,79 +788,127 @@ int main(int argc, char **argv){
 
   /**/
   
-  while(ros::ok()){
-        
-    switch (goal_plan_status){
+  spinner.start();
 
+  while(ros::ok()){
+
+    switch (avoid_obj_plan_status){
       case -10:
         // State not initialized yet... wait
       break;
       case -1:
-        //ac.cancelGoal();
+        local_plan = true;
+        ac.cancelAllGoals();
+        while(goal_plan_status != 2 && goal_plan_status != 8){
+          r.sleep();
+        }
         ROS_INFO("Goal plan Cancelled!");
+        ROS_INFO("Start turn Front-Right!");
+        turn_front_right_plan();
+        ac.sendGoal(final_goal);
+        local_plan = false;
         action_in_progress = false;
+        avoid_obj_plan_status = -10;
       break;
       case -2:
-        //ac.cancelGoal();
+        local_plan = true;
+        ac.cancelAllGoals();
+        while(goal_plan_status != 2 && goal_plan_status != 8){
+          r.sleep();
+        }
         ROS_INFO("Goal plan Cancelled!");
+        ROS_INFO("Start turn Front-Left!");
+        turn_front_left_plan();
+        ac.sendGoal(final_goal);
+        local_plan = false;
         action_in_progress = false;
+        avoid_obj_plan_status = -10;
       break;
       case -3:
-        ac.cancelGoal();
+        local_plan = true;
+        ac.cancelAllGoals();
+        while(goal_plan_status != 2 && goal_plan_status != 8){
+          r.sleep();
+        }
         ROS_INFO("Goal plan Cancelled!");
         ROS_INFO("Start turn right!");
         turn_right_plan();
-        action_in_progress = false;
-        goal_plan_status = -10;
         ac.sendGoal(final_goal);
+        action_in_progress = false;
+        avoid_obj_plan_status = -10;
       break;
       case -4:
-        ac.cancelGoal();
+        local_plan = true;
+        ac.cancelAllGoals();
+        while(goal_plan_status != 2 && goal_plan_status != 8){
+          r.sleep();
+        }
         ROS_INFO("Goal plan Cancelled!");
         ROS_INFO("Start turn left!");
-        action_in_progress = false;
-        goal_plan_status = -10;
+        turn_left_plan();
         ac.sendGoal(final_goal);
+        local_plan = false;
+        action_in_progress = false;
+        avoid_obj_plan_status = -10;
       break;
       case -5:
-        //ac.cancelGoal();
+        local_plan = true;
+        ac.cancelAllGoals();
+        while(goal_plan_status != 2 && goal_plan_status != 8){
+          r.sleep();
+        }
         ROS_INFO("Goal plan Cancelled!");
+        go_back_plan();
+        ac.sendGoal(final_goal);
+        local_plan = false;
         action_in_progress = false;
-      break;
-      case 0:
-      
-      break;
-      case 1:
-      
-      break;
-      case 2:
-      
-      break;
-      case 3:
-        ROS_INFO("Goal plan Reached!");
-        return 0;
-      break;
-      case 4:
-      
-      break;
-      case 5:
-      
-      break;
-      case 6:
-      
-      break;
-      case 7:
-      
-      break;
-      case 8:
-      
-      break;
-      case 9:
-      
+        avoid_obj_plan_status = -10;
       break;
       default:
-        ROS_INFO("Unknown state - goal_plan_status: %d!", goal_plan_status);
+        ROS_INFO("Unknown state - avoid_obj_plan_status: %d!", avoid_obj_plan_status);
       break;
+    }
+
+    if(!local_plan){                // if i'm planning in a local way don't take choice of global status
+      switch (goal_plan_status){
+        case -10:
+          // State not initialized yet... wait
+        break;
+        case 0:
+        
+        break;
+        case 1:
+        
+        break;
+        case 2:
+        
+        break;
+        case 3:
+          ROS_INFO("Goal plan Reached!");
+          return 0;
+        break;
+        case 4:
+        
+        break;
+        case 5:
+        
+        break;
+        case 6:
+        
+        break;
+        case 7:
+        
+        break;
+        case 8:
+        
+        break;
+        case 9:
+        
+        break;
+        default:
+          ROS_INFO("Unknown state - goal_plan_status: %d!", goal_plan_status);
+        break;
+      }
     }
 
     r.sleep();

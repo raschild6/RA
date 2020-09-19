@@ -120,6 +120,7 @@ int main(int argc, char **argv)
     else if (global_state == 2)
     {
       done();
+      return 0;
       continue;
     }
     else
