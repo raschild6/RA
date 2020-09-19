@@ -19,6 +19,7 @@ unordered_map<string, tuple<float, float>> regions;  // name_region, < min_value
 int global_state = 0;
 float min_obstacle_dist = 0.35, min_available_reg = 0.7;
 bool action_in_progress = false;
+int action_step = 0;
 
 /*
     Laser Scan: cycle [0:400]
@@ -57,65 +58,6 @@ void change_state(int state)
     }
 }
 void take_action(){
-
-  /*
-  ROS_INFO("TAKE ACTION");
-  ROS_INFO("right : %f", regions["right"]);
-  ROS_INFO("fright : %f", regions["fright"]);
-  ROS_INFO("front : %f", regions["front"]);
-  ROS_INFO("left : %f", regions["left"]);
-  ROS_INFO("fleft : %f", regions["left"]);
-  * /
-  string state_description = "";
-
-  float d = 0.3;
-
-  if (regions["front"] > d && regions["left"] > d && regions["right"] > d)
-  {
-      state_description = "case 1 - nothing";
-      change_state(0);
-  }
-  else if (regions["front"] < d && regions["left"] > d && regions["right"] > d)
-  {
-      state_description = "case 2 -front";
-      change_state(1);
-  }
-  else if (regions["front"] > d && regions["left"] > d && regions["right"] < d)
-  {
-      state_description = "case 3- fright";
-      change_state(2);
-  }
-  else if (regions["front"] > d && regions["left"] < d && regions["right"] > d)
-  {
-      state_description = "case 4 - fleft";
-      change_state(0);
-  }
-  else if (regions["front"] < d && regions["left"] > d && regions["right"] < d)
-  {
-      state_description = "case 5 - front and fright";
-      change_state(1);
-  }
-  else if (regions["front"] < d && regions["left"] < d && regions["right"] > d)
-  {
-      state_description = "case 6 - front and fleft";
-      change_state(1);
-  }
-  else if (regions["front"] < d && regions["left"] < d && regions["right"] < d)
-  {
-      state_description = "case 7 - front and fleft and fright";
-      change_state(1);
-  }
-  else if (regions["front"] > d && regions["left"] < d && regions["right"] < d)
-  {
-      state_description = "case 8 - fleft and fright";
-      change_state(0);
-  }
-  else
-  {
-      state_description = "unknown case";
-  }
-  */
-
 
   if(get<0>(regions["front_1"]) < min_obstacle_dist || get<0>(regions["front_2"]) < min_obstacle_dist){
 
@@ -183,7 +125,7 @@ void take_action(){
     }
     
     // FRONT, RIGHT, LEFT BUSY -> check BACK_1, BACK_2
-    if(come_back != 2){
+    if(come_back == 0){
       if(find(probably_regions.begin(), probably_regions.end(),"back_1") != probably_regions.end()){
         if(find(probably_regions.begin(), probably_regions.end(),"back_2") != probably_regions.end()){
           
@@ -202,7 +144,7 @@ void take_action(){
     }
     
     if(space_states.size() != 0)
-      goal_plan_status = space_states[0];
+      goal_plan_status = space_states[0];   // per ora scegli la prima soluzione trovata
       action_in_progress = true;
     else
       ROS_INFO("space_states empty");
@@ -210,6 +152,71 @@ void take_action(){
 
   
 
+}
+
+bool turn_right_plan(){
+  geometry_msgs::Twist msg;
+  
+  msg = turn_right();
+  ros::Time rotate_time_start = ros::Time::now();
+  cmd_pub.publish(msg);
+  
+  // rotate robot until front object disappear from front_1/front_2 
+  while(action_step == 1){
+    ros::Duration(1).sleep();
+  }
+  ros::Time rotate_time = rotate_time_start - ros::Time::now();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Rotation right completed");
+
+  msg = go_straight_ahead();
+  cmd_pub.publish(msg);
+  ros::Duration(1).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Go ahead completed");
+
+  msg = turn_left();
+  cmd_pub.publish(msg);
+  ros::Duration(rotate_time).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Rotation left_back completed");
+
+  return true;
+}
+bool turn_left_plan(){
+  geometry_msgs::Twist msg;
+  
+  msg = turn_left();
+  ros::Time rotate_time_start = ros::Time::now();
+  cmd_pub.publish(msg);
+  
+  // rotate robot until front object disappear from front_1/front_2 
+  while(action_step == 1){
+    ros::Duration(1).sleep();
+  }
+  ros::Time rotate_time = rotate_time_start - ros::Time::now();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Rotation left completed");
+
+  msg = go_straight_ahead();
+  cmd_pub.publish(msg);
+  ros::Duration(1).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Go ahead completed");
+
+  msg = turn_right();
+  cmd_pub.publish(msg);
+  ros::Duration(rotate_time).sleep();
+  msg = done();
+  cmd_pub.publish(msg);
+  ROS_INFO("Rotation right_back completed");
+
+  return true;
 }
 
 geometry_msgs::Twist turn_right()
@@ -222,6 +229,12 @@ geometry_msgs::Twist turn_left()
 {
   geometry_msgs::Twist msg;
   msg.angular.z = 0.2;
+  return msg;
+}
+geometry_msgs::Twist go_straight_ahead()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = 0.5;
   return msg;
 }
 geometry_msgs::Twist done()
@@ -307,9 +320,13 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
       case -2:
       break;
       case -3:
-        
+        // check front_1/front_2 free
+        if(get<0>(regions["front_1"]) >= min_available_reg && get<0>(regions["front_2"]) >= min_available_reg)
+          action_step = 1;
       break;
       case -4:
+        if(get<0>(regions["front_1"]) >= min_available_reg && get<0>(regions["front_2"]) >= min_available_reg)
+          action_step = 1;
       break;
       case -5:
       break;
@@ -525,8 +542,6 @@ int main(int argc, char **argv){
     ROS_INFO("FAILED!");
 
   /**/
-
-  geometry_msgs::Twist msg;
   
   while(ros::ok()){
         
@@ -547,14 +562,15 @@ int main(int argc, char **argv){
       break;
       case -3:
         //ac.cancelGoal();
-        ROS_INFO("Goal plan Cancelled!");
-        msg = find_wall();
+        //ROS_INFO("Goal plan Cancelled!");
+        ROS_INFO("Start turn right!");
+        turn_right_plan();
         action_in_progress = false;
       break;
       case -4:
         //ac.cancelGoal();
-        ROS_INFO("Goal plan Cancelled!");
-        msg = find_wall();
+        //ROS_INFO("Goal plan Cancelled!");
+        ROS_INFO("Start turn left!");
         action_in_progress = false;
       break;
       case -5:
@@ -597,9 +613,6 @@ int main(int argc, char **argv){
         ROS_INFO("Unknown state - goal_plan_status: %d!", goal_plan_status);
       break;
     }
-
-    cmd_pub.publish(msg);
-    ros::spinOnce();
 
     r.sleep();
   }
