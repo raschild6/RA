@@ -35,27 +35,16 @@ double yaw_precision = M_PI / (90 * 2); // +/- 1 degree allowed
 double dist_precision = 0.1;
 
 bool stop_laser = false;
-bool go_to_end_corridor = true;
+bool first_passage = true;
 bool rotate_left = false;
-bool rotate_right = false;
-bool go_to_gate1 = false;
-bool go_to_gate2 = false;
-bool go_to_corner_left = false;
-bool go_to_corner_right = false;
+bool rotate_right_steps = false;
+bool gate1 = false;
+bool enter_gate1 = false;
+bool end_gate1 = false;
+bool gate2 = false;
+bool finish_narrow_mode = false;
 
-int narrow_action_step = 0;
-/*
-    0: go to end corridor
-    1: go to gate 1
-    2: go to gate 2
-    3: go to left corner
-    4: go to right corner
-    5: rotate right
-    6: rotate left
-
-*/
 int step_rotate_right = 0;
-int step_rotate_left = 0;
 
 /*
   Laser Scan: cycle [1:400]
@@ -82,17 +71,12 @@ void change_state(int state)
         global_narrow_state = state;
     }
 }
-void change_destination()
-{
-    ros::Duration(1).sleep();
-    switch (narrow_action_step)
-    {
-    case -1:
-      mode = true;      
-      break;
-    
-    case 0:
-{      des_pose.pose.position.x = -1.327743;
+void change_destination(){
+
+  ros::Duration(1).sleep();
+  if (first_passage)
+  {
+      des_pose.pose.position.x = -1.327743;
       des_pose.pose.position.y = 2.8;
       des_pose.pose.position.z = 0;
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
@@ -106,77 +90,11 @@ void change_destination()
 
       ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
       change_state(0);
-      break;
-}    
-    case 1:
-{      des_pose.pose.position.x = -0.6;
-      des_pose.pose.position.y = robot_pose.pose.pose.position.y;
-      des_pose.pose.position.z = 0;
-      des_pose.pose.orientation = robot_pose.pose.pose.orientation;
-
-      des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
-      ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
-      ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
-      tf::Pose current_goal;
-      tf::poseMsgToTF(des_pose.pose, current_goal);
-
-      ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-      change_state(1);
-      break;
-}    
-    case 2:
-{      des_pose.pose.position.x = 1.23;
-      des_pose.pose.position.y = 2.66;
-      des_pose.pose.position.z = 0;
-      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
-
-      des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
-      ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
-      ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
-      tf::Pose current_goal;
-      tf::poseMsgToTF(des_pose.pose, current_goal);
-
-      ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-      break;
-}    
-    case 3:
-{      des_pose.pose.position.x = 1.23;
-      des_pose.pose.position.y = 3.64;
-      des_pose.pose.position.z = 0;
-      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
-
-      des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
-      ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
-      ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
-      tf::Pose current_goal;
-      tf::poseMsgToTF(des_pose.pose, current_goal);
-
-      ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-      change_state(2);
-      break;
-}    
-    case 4:
-{      des_pose.pose.position.x = -1.17;
-      des_pose.pose.position.y = 3.73;
-      des_pose.pose.position.z = 0;
-      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
-
-      des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
-      ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
-      ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
-      tf::Pose current_goal;
-      tf::poseMsgToTF(des_pose.pose, current_goal);
-
-      ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-      change_state(2);
-      break;
-}    
-    case 5:
-{      if(step_rotate_right == 0){
+  }
+  else if (rotate_right_steps)
+  {
+      stop_laser = true;
+      if(step_rotate_right == 0){
           ROS_INFO("START ROTATE RIGHT IN PLACE");
           des_pose.pose.position = robot_pose.pose.pose.position;
           //des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.004280);
@@ -208,7 +126,6 @@ void change_destination()
           ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
           change_state(3);
       }else if(step_rotate_right == 2){
-          ROS_INFO("FINISH ROTATE RIGHT IN PLACE");
           des_pose.pose.position = robot_pose.pose.pose.position;
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
 
@@ -222,69 +139,119 @@ void change_destination()
           ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
           change_state(1);
       }
-      stop_laser = true;
-      break;
-}    
-    case 6:
-{      if(step_rotate_left == 0){
-          ROS_INFO("START ROTATE RIGHT IN PLACE");
-          des_pose.pose.position = robot_pose.pose.pose.position;
-          //des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.004280);
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(1.198);
+  }
+  else if (rotate_left)
+  {
+      des_pose.pose.position = robot_pose.pose.pose.position;
+      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-90);
 
-          des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
-          ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
-          ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
-          tf::Pose current_goal;
-          tf::poseMsgToTF(des_pose.pose, current_goal);
+      des_pose.header.frame_id = "marrtino_map";
+      des_pose.header.stamp = ros::Time::now();
+      ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+      ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+      tf::Pose current_goal;
+      tf::poseMsgToTF(des_pose.pose, current_goal);
 
-          ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-          change_state(2);
-          
-      }else if(step_rotate_left == 1){
-          des_pose.pose.position.x = robot_pose.pose.pose.position.x - 0.1;
-          des_pose.pose.position.y = robot_pose.pose.pose.position.y + 0.1; 
-          des_pose.pose.position.z = 0;
-          des_pose.pose.orientation = robot_pose.pose.pose.orientation;
+      ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+      global_narrow_state = 2;
+  }
+  else if (gate1)
+  {
+      des_pose.pose.position = robot_pose.pose.pose.position;
+      des_pose.pose.position.x = -0.54;
+      des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
-          des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
-          ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
-          ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
-          tf::Pose current_goal;
-          tf::poseMsgToTF(des_pose.pose, current_goal);
+      des_pose.header.frame_id = "marrtino_map";
+      des_pose.header.stamp = ros::Time::now();
+      ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+      ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+      tf::Pose current_goal;
+      tf::poseMsgToTF(des_pose.pose, current_goal);
 
-          ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-          change_state(3);
-      }else if(step_rotate_left == 2){
-          ROS_INFO("FINISH ROTATE RIGHT IN PLACE");
-          des_pose.pose.position = robot_pose.pose.pose.position;
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
+      ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+      change_state(3);
+  }
+  else if (gate2)
+  {
+      des_pose.pose.position = robot_pose.pose.pose.position;
+      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
-          des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
-          ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
-          ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
-          tf::Pose current_goal;
-          tf::poseMsgToTF(des_pose.pose, current_goal);
+      des_pose.header.frame_id = "marrtino_map";
+      des_pose.header.stamp = ros::Time::now();
+      ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+      ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+      tf::Pose current_goal;
+      tf::poseMsgToTF(des_pose.pose, current_goal);
 
-          ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-          change_state(2);
-      }
-      stop_laser = true;
-      break;
-}    
-    default:
-      break;
-    }
+      ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+  }
+  else if (enter_gate1){
+    stop_laser = true;
+    des_pose.pose.position = robot_pose.pose.pose.position;
+    des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
 
+    des_pose.header.frame_id = "marrtino_map";
+    des_pose.header.stamp = ros::Time::now();
+    ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+    ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+    tf::Pose current_goal;
+    tf::poseMsgToTF(des_pose.pose, current_goal);
+
+    ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+    change_state(1);
+  }
+  else if (end_gate1){
+    des_pose.pose.position = robot_pose.pose.pose.position;
+    des_pose.pose.position.y = 2.73;
+    des_pose.pose.orientation = robot_pose.pose.pose.orientation;
+
+    des_pose.header.frame_id = "marrtino_map";
+    des_pose.header.stamp = ros::Time::now();
+    ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+    ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+    tf::Pose current_goal;
+    tf::poseMsgToTF(des_pose.pose, current_goal);
+
+    ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+    change_state(3);
+  }
 }
-void next_destination(int narrow_action)
+void next_destination()
 {
-  narrow_action_step = narrow_action;
-  ROS_INFO("NEXT DESTINATION");
-  change_destination();
+    ROS_INFO("NEXT DESTINATION");
+    if(finish_narrow_mode){
+      change_state(4);
+    }
+    if (end_gate1)
+    {
+      end_gate1 = false;
+      finish_narrow_mode = true;
+      change_destination();
+    }
+    if (enter_gate1)
+    {
+      enter_gate1 = false;
+      end_gate1 = true;
+      change_destination();
+    }
+    if (gate1)
+    {
+      gate1 = false;
+      enter_gate1 = true;
+      change_destination();
+    }
+    if (rotate_right_steps)
+    {
+      rotate_right_steps = false;
+      gate1 = true;
+      change_destination();
+    }
+    if (first_passage)
+    {
+      first_passage = false;
+      rotate_right_steps = true;
+      change_destination();
+    }
 }
 
 
@@ -307,18 +274,11 @@ void sendMotorCommand(geometry_msgs::Twist msg){
   ros::spinOnce();
 }
 
-geometry_msgs::Twist find_wall_left()
+geometry_msgs::Twist find_wall()
 {
     geometry_msgs::Twist msg;
     msg.linear.x = 0.1;
     msg.angular.z = 0.1;
-    return msg;
-}
-geometry_msgs::Twist find_wall_right()
-{
-    geometry_msgs::Twist msg;
-    msg.linear.x = 0.1;
-    msg.angular.z = -0.1;
     return msg;
 }
 geometry_msgs::Twist turn_right()
@@ -380,45 +340,7 @@ geometry_msgs::Twist done()
     ROS_INFO("GOAL REACHED");
     sendMotorCommand(msg);
     stop_laser = false;
-    switch (narrow_action_step)
-    {
-      //after go to end corridor, rotate right in step
-    case 0:
-      narrow_action_step = 5;
-      break;
-      //after go to gate 1, rotate right
-    case 1:
-      narrow_action_step = -1;
-      break;
-      //after go to gate 2, go to left corner
-    case 2:
-      narrow_action_step = 3;
-      break;
-      //after go to left corner, rotate left in step
-    case 3:
-      narrow_action_step = 6;
-      break;
-      //after go to right corner, rotate left in step
-    case 4:
-      narrow_action_step = 6;
-      break;
-      //after rotate right, go to gate 1
-    case 5:
-      narrow_action_step = 1;
-      break;
-      //after rotate left, go to right corner
-    case 6:
-      narrow_action_step = 4;
-      break;
-
-    case 7:
-      narrow_action_step = 1;
-      break;
-
-    default:
-      break;
-    }
-    next_destination(narrow_action_step);
+    next_destination();
   }
   
   return msg;
@@ -491,10 +413,9 @@ void take_narrow_action()
         }
     }
 }
-void check_goal()
-{
-    if (narrow_action_step <= 4 && narrow_action_step >= 0)
-    {
+void check_goal(){
+
+    if (first_passage || gate1 || end_gate1){
         double desired_yaw = atan2(des_pose.pose.position.y - robot_pose.pose.pose.position.y, des_pose.pose.position.x - robot_pose.pose.pose.position.x);
         double err_yaw = desired_yaw - yaw;
         double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
@@ -503,8 +424,7 @@ void check_goal()
         if (err_pos < dist_precision && err_yaw < yaw_precision)
           done();
     }
-    else if (narrow_action_step == 5)
-    {
+    else if (rotate_right_steps){
         tf::Pose current_goal;
         tf::poseMsgToTF(des_pose.pose, current_goal);
         tf::Pose current_pose;
@@ -543,51 +463,14 @@ void check_goal()
             }
         }
     }
-        else if (narrow_action_step == 6)
-    {
-        tf::Pose current_goal;
-        tf::poseMsgToTF(des_pose.pose, current_goal);
-        tf::Pose current_pose;
-        tf::poseMsgToTF(robot_pose.pose.pose, current_pose);
-        //ROS_INFO("\t\t- Odometry pose(x, y) = [%f, %f, %f, %f]", robot_pose.pose.pose.orientation.x, robot_pose.pose.pose.orientation.y, robot_pose.pose.pose.orientation.z, robot_pose.pose.pose.orientation.w);
-        //ROS_INFO("CURRENT YAW: %f", tf::getYaw(current_pose.getRotation()));
-        //ROS_INFO("ERROR: %f", fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())));
-        
-        // done twist
-        geometry_msgs::Twist twist_msg;
-        twist_msg.linear.x = 0;
-        twist_msg.angular.z = 0;
-            
-        
-        if(step_rotate_left == 0 || step_rotate_left == 2){
-            if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
-            {
-                
-                if(step_rotate_left == 0) 
-                    ROS_INFO("FIRST STEP TURN RIGHT COMPLETED"); 
-                else 
-                    ROS_INFO("THIRD STEP TURN RIGHT COMPLETED");
-                
-                step_rotate_left++;
-                cmd_pub.publish(twist_msg);
-                change_destination();
-            }
-        }else if(step_rotate_left == 1){
-            double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
-            if (err_pos < dist_precision){ 
-                step_rotate_left++;
+    else if (enter_gate1){
+      tf::Pose current_goal;
+      tf::poseMsgToTF(des_pose.pose, current_goal);
+      tf::Pose current_pose;
+      tf::poseMsgToTF(robot_pose.pose.pose, current_pose);
 
-                ROS_INFO("SECOND GO AHEAD COMPLETED");
-                cmd_pub.publish(twist_msg);
-                change_destination();
-            }
-        }else{
-            if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
-            {
-                done();
-                step_rotate_left = 0;
-            }
-        }
+      if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
+        done();
     }
 }
 void odomPoseCallback(const nav_msgs::Odometry::ConstPtr &msgOdom)
@@ -1428,7 +1311,7 @@ int main(int argc, char **argv){
     }else{
       geometry_msgs::Twist msg;
       if (global_narrow_state == 0)
-          msg = find_wall_left();
+          msg = find_wall();
       else if (global_narrow_state == 1)
           msg = turn_right();
       else if (global_narrow_state == 2)
