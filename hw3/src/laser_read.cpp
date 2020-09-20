@@ -195,8 +195,8 @@ void change_destination()
             change_state(1);
             
         }else if(step_rotate_right == 1){
-            des_pose.pose.position.x = -1.2;
-            des_pose.pose.position.y = 3.17; 
+            des_pose.pose.position.x = -1.24;
+            des_pose.pose.position.y = 3.16; 
             des_pose.pose.position.z = 0;
             des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
@@ -212,7 +212,7 @@ void change_destination()
         }else if(step_rotate_right == 2){
             ROS_INFO("FINISH ROTATE RIGHT IN PLACE");
             des_pose.pose.position = robot_pose.pose.pose.position;
-            des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.004280);
+            des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-0.024876);
 
             des_pose.header.frame_id = "marrtino_map";
             des_pose.header.stamp = ros::Time::now();
@@ -404,36 +404,39 @@ void check_goal()
         //ROS_INFO("\t\t- Odometry pose(x, y) = [%f, %f, %f, %f]", robot_pose.pose.pose.orientation.x, robot_pose.pose.pose.orientation.y, robot_pose.pose.pose.orientation.z, robot_pose.pose.pose.orientation.w);
         //ROS_INFO("CURRENT YAW: %f", tf::getYaw(current_pose.getRotation()));
         //ROS_INFO("ERROR: %f", fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())));
-        if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
-        {
-            // done twist
-            geometry_msgs::Twist twist_msg;
-            twist_msg.linear.x = 0;
-            twist_msg.angular.z = 0;
+        
+        // done twist
+        geometry_msgs::Twist twist_msg;
+        twist_msg.linear.x = 0;
+        twist_msg.angular.z = 0;
+            
+        
+        if(step_rotate_right == 0 || step_rotate_right == 2){
+            if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
+            {
                 
-            if(step_rotate_right == 0){
+                if(step_rotate_right == 0) 
+                    ROS_INFO("FIRST STEP TURN RIGHT COMPLETED"); 
+                else 
+                    ROS_INFO("THIRD STEP TURN RIGHT COMPLETED");
+                
                 step_rotate_right++;
-                
-                ROS_INFO("FIRST STEP TURN RIGHT COMPLETED");
                 cmd_pub.publish(twist_msg);
                 change_destination();
-            }else if(step_rotate_right == 1){
-                double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
-
-                if (err_pos <= 0.1 || des_pose.pose.position.y - robot_pose.pose.pose.position.y < 0 || des_pose.pose.position.x - robot_pose.pose.pose.position.x < 0){
-                    step_rotate_right++;
-
-                    ROS_INFO("SECOND GO AHEAD COMPLETED");
-                    cmd_pub.publish(twist_msg);
-                    change_destination();
-                }
-            }else if(step_rotate_right == 2){
+            }
+        }else if(step_rotate_right == 1){
+            double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
+            ROS_INFO("******* pose des: %f, %f, pose robot: %f, %f, error: %f", des_pose.pose.position.x, des_pose.pose.position.y, robot_pose.pose.pose.position.x, robot_pose.pose.pose.position.y, err_pos );
+            if (err_pos < dist_precision){  //<= 0.1 || des_pose.pose.position.y - robot_pose.pose.pose.position.y < 0 || des_pose.pose.position.x - robot_pose.pose.pose.position.x < 0){
                 step_rotate_right++;
-                
-                ROS_INFO("THIRD STEP TURN RIGHT COMPLETED");
+
+                ROS_INFO("SECOND GO AHEAD COMPLETED");
                 cmd_pub.publish(twist_msg);
                 change_destination();
-            }else{
+            }
+        }else{
+            if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
+            {
                 done();
             }
         }
