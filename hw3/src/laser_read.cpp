@@ -24,7 +24,7 @@ ros::Publisher cmd_pub;
 float range_min = 0;
 float range_max = 0;
 unordered_map<string, tuple<float, float>> regions; // name_region, < min_value, mean_value >
-int global_state = -1;
+int global_narrow_state = -1;
 int move_to_wall = 1;
 geometry_msgs::PoseWithCovarianceStamped robot_pose;
 geometry_msgs::PoseStamped des_pose;
@@ -57,10 +57,10 @@ void initMap()
 void change_state(int state)
 {
     ROS_INFO("CHANGE_STATE %d", state);
-    if (state != global_state)
+    if (state != global_narrow_state)
     {
         //ROS_INFO("Wall follower - [%s]", state);
-        global_state = state;
+        global_narrow_state = state;
     }
 }
 void take_action()
@@ -212,7 +212,7 @@ void change_destination()
         }else if(step_rotate_right == 2){
             ROS_INFO("FINISH ROTATE RIGHT IN PLACE");
             des_pose.pose.position = robot_pose.pose.pose.position;
-            des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-0.024876);
+            des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
 
             des_pose.header.frame_id = "marrtino_map";
             des_pose.header.stamp = ros::Time::now();
@@ -240,12 +240,12 @@ void change_destination()
         tf::poseMsgToTF(des_pose.pose, current_goal);
 
         ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-        global_state = 2;
+        global_narrow_state = 2;
     }
     else if (gate1)
     {
-        des_pose.pose.position.x = -0.55;
-        des_pose.pose.position.y = 3.125;
+        des_pose.pose.position.x = -0.6;
+        des_pose.pose.position.y = robot_pose.pose.pose.position.y;;
         des_pose.pose.position.z = 0;
         des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.004280);
 
@@ -257,12 +257,11 @@ void change_destination()
         tf::poseMsgToTF(des_pose.pose, current_goal);
 
         ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-        change_state(4);
+        change_state(1);
     }
-    /*
     else if (gate2)
     {
-        des_pose.pose.position = robot_pose.pose.position;
+        des_pose.pose.position = robot_pose.pose.pose.position;
         des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
         des_pose.header.frame_id = "marrtino_map";
@@ -274,7 +273,6 @@ void change_destination()
 
         ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
     }
-    */
 }
 void next_destination()
 {
@@ -374,7 +372,7 @@ void done()
     geometry_msgs::Twist twist_msg;
     twist_msg.linear.x = 0;
     twist_msg.angular.z = 0;
-    global_state = -1;
+    global_narrow_state = -1;
     ROS_INFO("GOAL REACHED");
     cmd_pub.publish(twist_msg);
     stop_laser = false;
@@ -426,8 +424,7 @@ void check_goal()
             }
         }else if(step_rotate_right == 1){
             double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
-            ROS_INFO("******* pose des: %f, %f, pose robot: %f, %f, error: %f", des_pose.pose.position.x, des_pose.pose.position.y, robot_pose.pose.pose.position.x, robot_pose.pose.pose.position.y, err_pos );
-            if (err_pos < dist_precision){  //<= 0.1 || des_pose.pose.position.y - robot_pose.pose.pose.position.y < 0 || des_pose.pose.position.x - robot_pose.pose.pose.position.x < 0){
+            if (err_pos < dist_precision){ 
                 step_rotate_right++;
 
                 ROS_INFO("SECOND GO AHEAD COMPLETED");
@@ -438,6 +435,7 @@ void check_goal()
             if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
             {
                 done();
+                step_rotate_right = 0;
             }
         }
     }
@@ -469,17 +467,17 @@ int main(int argc, char **argv)
     while (ros::ok())
     {
         geometry_msgs::Twist msg;
-        if (global_state == 0)
+        if (global_narrow_state == 0)
             msg = find_wall();
-        else if (global_state == 1)
+        else if (global_narrow_state == 1)
             msg = turn_right();
-        else if (global_state == 2)
+        else if (global_narrow_state == 2)
             msg = turn_left();
-        else if (global_state == 3)
+        else if (global_narrow_state == 3)
             msg = go_straight();
-        else if (global_state == 4)
+        else if (global_narrow_state == 4)
             continue;
-        else if (global_state == -1)
+        else if (global_narrow_state == -1)
         {
             change_destination();
         }

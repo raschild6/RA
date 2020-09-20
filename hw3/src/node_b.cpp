@@ -2,7 +2,10 @@
 
 using namespace std;
 
-/**** GOAL ****/
+bool mode = false;    // false : narrow passages mode
+                      // true  : open space mode
+
+/**** GOAL open space variable ****/
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 geometry_msgs::Pose current_amcl_pose;
 geometry_msgs::PoseStamped current_goal_map_pose;
@@ -11,7 +14,7 @@ bool amcl_set = false;
 bool local_plan = false;
 int goal_plan_status = -10, avoid_obj_plan_status = -10;
 
-/**** LASER ****/
+/**** LASER open space variables ****/
 ros::Publisher cmd_pub;
 float range_min = 0;
 float range_max = 0;
@@ -21,6 +24,24 @@ float min_obstacle_dist = 0.25, min_available_reg = 0.5, min_space_avail = 0.4, 
 bool action_in_progress = false;
 int action_step = 0;
 bool action_internal_condition = true;  // used to increase action_step for case -1, -2 (can't use if-else, it's an error)
+
+/**** LASER narrow passages variables ****/
+int global_narrow_state = -1;
+int move_to_wall = 1;
+geometry_msgs::PoseWithCovarianceStamped robot_pose;
+geometry_msgs::PoseStamped des_pose;
+double yaw = 0;
+double yaw_precision = M_PI / (90 * 2); // +/- 1 degree allowed
+double dist_precision = 0.1;
+
+bool stop_laser = false;
+bool first_passage = true;
+bool rotate_left = false;
+bool rotate_right = false;
+bool gate1 = false;
+bool gate2 = false;
+
+int step_rotate_right = 0;
 
 /*
   Laser Scan: cycle [1:400]
@@ -36,6 +57,159 @@ bool action_internal_condition = true;  // used to increase action_step for case
       (NB. start from 0 not 1) 
 */
 
+
+/**** LASER narrow passages methods ****/
+void change_state(int state)
+{
+    ROS_INFO("CHANGE_STATE %d", state);
+    if (state != global_narrow_state)
+    {
+        //ROS_INFO("Wall follower - [%s]", state);
+        global_narrow_state = state;
+    }
+}
+void change_destination()
+{
+    ros::Duration(1).sleep();
+    if (first_passage)
+    {
+        des_pose.pose.position.x = -1.327743;
+        des_pose.pose.position.y = 2.8;
+        des_pose.pose.position.z = 0;
+        des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
+
+        des_pose.header.frame_id = "marrtino_map";
+        des_pose.header.stamp = ros::Time::now();
+        ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+        ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+        tf::Pose current_goal;
+        tf::poseMsgToTF(des_pose.pose, current_goal);
+
+        ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+        change_state(0);
+    }
+    else if (rotate_right)
+    {
+        if(step_rotate_right == 0){
+            ROS_INFO("START ROTATE RIGHT IN PLACE");
+            des_pose.pose.position = robot_pose.pose.pose.position;
+            //des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.004280);
+            des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(1.198);
+
+            des_pose.header.frame_id = "marrtino_map";
+            des_pose.header.stamp = ros::Time::now();
+            ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+            ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+            tf::Pose current_goal;
+            tf::poseMsgToTF(des_pose.pose, current_goal);
+
+            ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+            change_state(1);
+            
+        }else if(step_rotate_right == 1){
+            des_pose.pose.position.x = -1.24;
+            des_pose.pose.position.y = 3.16; 
+            des_pose.pose.position.z = 0;
+            des_pose.pose.orientation = robot_pose.pose.pose.orientation;
+
+            des_pose.header.frame_id = "marrtino_map";
+            des_pose.header.stamp = ros::Time::now();
+            ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+            ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+            tf::Pose current_goal;
+            tf::poseMsgToTF(des_pose.pose, current_goal);
+
+            ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+            change_state(3);
+        }else if(step_rotate_right == 2){
+            ROS_INFO("FINISH ROTATE RIGHT IN PLACE");
+            des_pose.pose.position = robot_pose.pose.pose.position;
+            des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
+
+            des_pose.header.frame_id = "marrtino_map";
+            des_pose.header.stamp = ros::Time::now();
+            ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+            ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+            tf::Pose current_goal;
+            tf::poseMsgToTF(des_pose.pose, current_goal);
+
+            ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+            change_state(1);
+        }
+        stop_laser = true;
+
+    }
+    else if (rotate_left)
+    {
+        des_pose.pose.position = robot_pose.pose.pose.position;
+        des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-90);
+
+        des_pose.header.frame_id = "marrtino_map";
+        des_pose.header.stamp = ros::Time::now();
+        ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+        ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+        tf::Pose current_goal;
+        tf::poseMsgToTF(des_pose.pose, current_goal);
+
+        ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+        global_narrow_state = 2;
+    }
+    else if (gate1)
+    {
+        des_pose.pose.position.x = -0.6;
+        des_pose.pose.position.y = robot_pose.pose.pose.position.y;
+        des_pose.pose.position.z = 0;
+        des_pose.pose.orientation = robot_pose.pose.pose.orientation;
+
+        des_pose.header.frame_id = "marrtino_map";
+        des_pose.header.stamp = ros::Time::now();
+        ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+        ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+        tf::Pose current_goal;
+        tf::poseMsgToTF(des_pose.pose, current_goal);
+
+        ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+        change_state(1);
+    }
+    else if (gate2)
+    {
+        des_pose.pose.position = robot_pose.pose.pose.position;
+        des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
+
+        des_pose.header.frame_id = "marrtino_map";
+        des_pose.header.stamp = ros::Time::now();
+        ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+        ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+        tf::Pose current_goal;
+        tf::poseMsgToTF(des_pose.pose, current_goal);
+
+        ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+    }
+}
+void next_destination()
+{
+    ROS_INFO("NEXT DESTINATION");
+    if (gate1)
+    {
+        gate1 = false;
+        change_destination();
+    }
+    if (rotate_right)
+    {
+        rotate_right = false;
+        gate1 = true;
+        change_destination();
+    }
+    if (first_passage)
+    {
+        first_passage = false;
+        rotate_right = true;
+        change_destination();
+    }
+}
+
+
+/**** COMMON methods ****/
 void initMap()
 {
   // each of 4 regions has a first part(1) and next part(2) of rays
@@ -49,15 +223,222 @@ void initMap()
   regions["back_2"] = tuple<float,float>(-1, -1);
 }
 
-void change_state(int state)
+geometry_msgs::Twist find_wall()
 {
-    ROS_INFO("CHANGE_STATE");
-    if (state != global_state)
+    geometry_msgs::Twist msg;
+    msg.linear.x = 0.1;
+    msg.angular.z = 0.1;
+    return msg;
+}
+geometry_msgs::Twist turn_right()
+{
+  geometry_msgs::Twist msg;
+  if(mode)
+    msg.angular.z = -0.4;
+  else
+    msg.angular.z = -0.2;
+  
+  return msg;
+}
+geometry_msgs::Twist turn_left()
+{
+  geometry_msgs::Twist msg;
+  if(mode)
+    msg.angular.z = 0.4;
+  else
+    msg.angular.z = 0.2;
+  return msg;
+}
+geometry_msgs::Twist turn_front_right()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = 0.4;
+  msg.angular.z = -0.4;
+  return msg;
+}
+geometry_msgs::Twist turn_front_left()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = 0.4;
+  msg.angular.z = 0.4;
+  return msg;
+}
+geometry_msgs::Twist go_straight()
+{
+  geometry_msgs::Twist msg;
+  if(mode)
+    msg.linear.x = 0.4;   
+  else
+    msg.linear.x = 0.2;
+  return msg;
+}
+geometry_msgs::Twist go_back()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = -0.4;
+  return msg;
+}
+geometry_msgs::Twist done()
+{
+  geometry_msgs::Twist msg;
+  msg.linear.x = 0;
+  msg.angular.z = 0;
+  
+  if(!mode){
+    global_narrow_state = -1;
+    ROS_INFO("GOAL REACHED");
+    cmd_pub.publish(msg);
+ros::spinOnce();
+    stop_laser = false;
+    next_destination();
+  }
+  
+  return msg;
+}
+
+
+/**** LASER narrow passages callback ****/
+void take_narrow_action()
+{
+    //ROS_INFO("TAKE ACTION");
+    string state_description = "";
+
+    //float d = 0.17;  //good for min value
+    float d_front = 0.3;
+    float d_back = 0.1;
+
+    if (get<1>(regions["left_1"]) < d_front && get<1>(regions["right_2"]) > d_front)
     {
-        ROS_INFO("Wall follower - [%s]", state);
-        global_state = state;
+        /*
+        if (get<1>(regions["left_2"]) < d_back || get<1>(regions["right_1"]) > d_back)
+        {
+            ROS_INFO("TAKE ACTION \t\t GO STRAIGHT BACK");
+            move_to_wall = 0;
+            state_description = "case 4 - nothing";
+            change_state(3); //go straight forward
+        }
+        else
+        {
+        */
+        ROS_INFO("TAKE ACTION \t\t TURN RIGHT");
+
+        move_to_wall = 0;
+        state_description = "case 2 - left";
+        change_state(1); //turn right
+        //}
+    }
+    else if (get<1>(regions["left_1"]) > d_front && get<1>(regions["right_2"]) < d_front)
+    {
+        /*if (get<1>(regions["left_2"]) < d_back || get<1>(regions["right_1"]) > d_back)
+        {
+            ROS_INFO("TAKE ACTION \t\t GO STRAIGHT BACK");
+            move_to_wall = 0;
+            state_description = "case 4 - nothing";
+            change_state(3); //go straight forward
+        }
+        else
+        {
+        */
+        ROS_INFO("TAKE ACTION \t\t TURN LEFT");
+
+        move_to_wall = 0;
+        state_description = "case 3 - right";
+        change_state(2); //turn left
+        //}
+    }
+    else if (get<1>(regions["left_1"]) > d_front && get<1>(regions["right_2"]) > d_front)
+    {
+        if (move_to_wall)
+        {
+            ROS_INFO("TAKE ACTION \t\t TURN LEFT TO WALL");
+
+            state_description = "case 1 - nothing";
+            change_state(0); //find wall by rotating left and going forward
+        }
+        else
+        {
+            ROS_INFO("TAKE ACTION \t\t GO STRAIGHT");
+
+            state_description = "case 4 - nothing";
+            change_state(3); //go straight forward
+        }
     }
 }
+void check_goal()
+{
+    if (first_passage || gate1)
+    {
+        double desired_yaw = atan2(des_pose.pose.position.y - robot_pose.pose.pose.position.y, des_pose.pose.position.x - robot_pose.pose.pose.position.x);
+        //ROS_INFO("DESIRED YAW: %f", desired_yaw);
+        double err_yaw = desired_yaw - yaw;
+        double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
+
+        if (err_pos < dist_precision && err_yaw < yaw_precision)
+        {
+            done();
+        }
+    }
+    else if (rotate_right)
+    {
+        tf::Pose current_goal;
+        tf::poseMsgToTF(des_pose.pose, current_goal);
+        tf::Pose current_pose;
+        tf::poseMsgToTF(robot_pose.pose.pose, current_pose);
+        //ROS_INFO("\t\t- Odometry pose(x, y) = [%f, %f, %f, %f]", robot_pose.pose.pose.orientation.x, robot_pose.pose.pose.orientation.y, robot_pose.pose.pose.orientation.z, robot_pose.pose.pose.orientation.w);
+        //ROS_INFO("CURRENT YAW: %f", tf::getYaw(current_pose.getRotation()));
+        //ROS_INFO("ERROR: %f", fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())));
+        
+        // done twist
+        geometry_msgs::Twist twist_msg;
+        twist_msg.linear.x = 0;
+        twist_msg.angular.z = 0;
+            
+        
+        if(step_rotate_right == 0 || step_rotate_right == 2){
+            if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
+            {
+                
+                if(step_rotate_right == 0) 
+                    ROS_INFO("FIRST STEP TURN RIGHT COMPLETED"); 
+                else 
+                    ROS_INFO("THIRD STEP TURN RIGHT COMPLETED");
+                
+                step_rotate_right++;
+                cmd_pub.publish(twist_msg);
+                change_destination();
+            }
+        }else if(step_rotate_right == 1){
+            double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
+            if (err_pos < dist_precision){ 
+                step_rotate_right++;
+
+                ROS_INFO("SECOND GO AHEAD COMPLETED");
+                cmd_pub.publish(twist_msg);
+                change_destination();
+            }
+        }else{
+            if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
+            {
+                done();
+                step_rotate_right = 0;
+            }
+        }
+    }
+}
+void odomPoseCallback(const nav_msgs::Odometry::ConstPtr &msgOdom)
+{
+    //ROS_INFO("\t\t- Odometry pose(x, y) = [%f, %f]", msgOdom->pose.pose.position.x, msgOdom->pose.pose.position.y);
+    robot_pose.pose.pose = msgOdom->pose.pose;
+    robot_pose.header.frame_id = "marrtino_map";
+    tf::Pose current_goal;
+    tf::poseMsgToTF(msgOdom->pose.pose, current_goal);
+    yaw = tf::getYaw(current_goal.getRotation());
+    //ROS_INFO("CURRENT YAW: %f", yaw);
+    check_goal();
+}
+
+
+/**** LASER open space methods ****/
 void take_action(){
 
   if(get<0>(regions["front_1"]) < min_obstacle_dist || get<0>(regions["front_2"]) < min_obstacle_dist){
@@ -177,67 +558,23 @@ void take_action(){
 
 }
 
-
-geometry_msgs::Twist turn_right()
-{
-  geometry_msgs::Twist msg;
-  msg.angular.z = -0.4;
-  return msg;
-}
-geometry_msgs::Twist turn_left()
-{
-  geometry_msgs::Twist msg;
-  msg.angular.z = 0.4;
-  return msg;
-}
-geometry_msgs::Twist turn_front_right()
-{
-  geometry_msgs::Twist msg;
-  msg.linear.x = 0.4;
-  msg.angular.z = -0.4;
-  return msg;
-}
-geometry_msgs::Twist turn_front_left()
-{
-  geometry_msgs::Twist msg;
-  msg.linear.x = 0.4;
-  msg.angular.z = 0.4;
-  return msg;
-}
-geometry_msgs::Twist go_straight_ahead()
-{
-  geometry_msgs::Twist msg;
-  msg.linear.x = 0.4;
-  return msg;
-}
-geometry_msgs::Twist go_back()
-{
-  geometry_msgs::Twist msg;
-  msg.linear.x = -0.4;
-  return msg;
-}
-geometry_msgs::Twist done()
-{
-  geometry_msgs::Twist msg;
-  msg.linear.x = 0;
-  msg.angular.z = 0;
-  return msg;
-}
-
 bool turn_right_plan(){
   geometry_msgs::Twist msg;
   
   msg = go_back();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ros::Duration(0.3).sleep();
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ros::Duration(1).sleep();
   ROS_INFO("Back a little completed");
   
   msg = turn_right();
   double rotate_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 0){
@@ -247,20 +584,25 @@ bool turn_right_plan(){
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ROS_INFO("Rotation right completed");
 
-  msg = go_straight_ahead();
+  msg = go_straight();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ros::Duration(1).sleep();
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ROS_INFO("Go ahead completed");
 
   msg = turn_left();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ros::Duration(rotate_time).sleep();
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ROS_INFO("Rotation left_back completed");
 
   ROS_INFO("Turn Right completed");
@@ -272,15 +614,18 @@ bool turn_left_plan(){
   
   msg = go_back();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ros::Duration(0.3).sleep();
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ros::Duration(1).sleep();
   ROS_INFO("Back a little completed");
   
   msg = turn_left();
   double rotate_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
+ros::spinOnce();
 
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 0){
@@ -290,20 +635,25 @@ bool turn_left_plan(){
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ROS_INFO("Rotation left completed");
 
-  msg = go_straight_ahead();
+  msg = go_straight();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ros::Duration(1).sleep();
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ROS_INFO("Go ahead completed");
 
   msg = turn_right();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ros::Duration(rotate_time).sleep();
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ROS_INFO("Rotation right_back completed");
 
   ROS_INFO("Turn Left completed");
@@ -315,15 +665,18 @@ bool turn_front_right_plan(){
   
   msg = go_back();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ros::Duration(0.25).sleep();
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ROS_INFO("Back a little completed");
   ros::Duration(0.5).sleep();
 
   msg = turn_right();
   double rotate_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
+ros::spinOnce();
   
   // wait until front object disappear from front_2 or timeout
   while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 2){
@@ -333,11 +686,13 @@ bool turn_front_right_plan(){
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
   cmd_pub.publish(msg);
+ros::spinOnce();
   ROS_INFO("End first right rotation completed");
   ros::Duration(0.5).sleep();
 
-  msg = go_straight_ahead();
+  msg = go_straight();
   cmd_pub.publish(msg);
+ros::spinOnce();
 
   // wait until object appear in back_1 
   while(action_step != 2){
@@ -345,14 +700,17 @@ bool turn_front_right_plan(){
   }
   msg = done();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ROS_INFO("Go ahead completed");
   ros::Duration(0.5).sleep();
   
   msg = turn_left();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ros::Duration(2*rotate_time).sleep();
   msg = done();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ROS_INFO("End back left rotation completed");
   ros::Duration(0.5).sleep();
 
@@ -365,15 +723,18 @@ bool turn_front_left_plan(){
   
   msg = go_back();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ros::Duration(0.25).sleep();
   msg = done();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ROS_INFO("Back a little completed");
   ros::Duration(0.5).sleep();
 
   msg = turn_left();
   double rotate_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   
   // wait until front object disappear from front_2 timeout
   while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 2 ){
@@ -383,11 +744,13 @@ bool turn_front_left_plan(){
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ROS_INFO("End first left rotation completed");
   ros::Duration(0.5).sleep();
 
-  msg = go_straight_ahead();
+  msg = go_straight();
   cmd_pub.publish(msg);
+  ros::spinOnce();
 
   // wait until object appear in back_1 
   while(action_step != 2){
@@ -395,14 +758,17 @@ bool turn_front_left_plan(){
   }
   msg = done();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ROS_INFO("Go ahead completed");
   ros::Duration(0.5).sleep();
   
   msg = turn_right();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ros::Duration(2*rotate_time).sleep();
   msg = done();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ROS_INFO("End back right rotation completed");
   ros::Duration(0.5).sleep();
 
@@ -416,6 +782,7 @@ bool go_back_plan(){
   msg = go_back();
   double back_time_start = ros::Time::now().toSec();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   
   // robot go back until an object appear in back_1 or back_2, or timeout 
   while(action_step == 0 && ros::Time::now().toSec() - back_time_start < 5){
@@ -424,6 +791,7 @@ bool go_back_plan(){
   action_step = 0;
   msg = done();
   cmd_pub.publish(msg);
+  ros::spinOnce();
   ros::Duration(1).sleep();
 
   // look right and left if possible to turn somewhere
@@ -458,6 +826,7 @@ bool go_back_plan(){
 }
 
 void laserReadCallback(const sensor_msgs::LaserScan &msg){
+
   //ROS_INFO("LASER READ");
   range_min = msg.range_min;
   range_max = msg.range_max;
@@ -519,63 +888,72 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
   // NB. back is inverted obv.
   
   /** /
-  ROS_INFO("RIGHT_1 SIZE: %d - min, average: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
-  ROS_INFO("RIGHT_2 SIZE: %d - min, average: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
-  ROS_INFO("FRONT_1 SIZE: %d - min, average: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
-  ROS_INFO("FRONT_2 SIZE: %d - min, average: %f, %f", front.size(), get<0>(regions["front_2"]), get<1>(regions["front_2"]));
-  ROS_INFO("LEFT_1  SIZE: %d - min, average: %f, %f", left.size(), get<0>(regions["left_1"]), get<1>(regions["left_1"]));
-  ROS_INFO("LEFT_2  SIZE: %d - min, average: %f, %f", left.size(), get<0>(regions["left_2"]), get<1>(regions["left_2"]));
-  ROS_INFO("BACK_1  SIZE: %d - min, average: %f, %f", back.size(), get<0>(regions["back_1"]), get<1>(regions["back_1"]));
-  ROS_INFO("BACK_2  SIZE: %d - min, average: %f, %f", back.size(), get<0>(regions["back_2"]), get<1>(regions["back_2"]));
-  /**/
+    ROS_INFO("RIGHT_1 SIZE: %d - min, average: %f, %f", right.size(), get<0>(regions["right_1"]), get<1>(regions["right_1"]));
+    ROS_INFO("RIGHT_2 SIZE: %d - min, average: %f, %f", right.size(), get<0>(regions["right_2"]), get<1>(regions["right_2"]));
+    ROS_INFO("FRONT_1 SIZE: %d - min, average: %f, %f", front.size(), get<0>(regions["front_1"]), get<1>(regions["front_1"]));
+    ROS_INFO("FRONT_2 SIZE: %d - min, average: %f, %f", front.size(), get<0>(regions["front_2"]), get<1>(regions["front_2"]));
+    ROS_INFO("LEFT_1  SIZE: %d - min, average: %f, %f", left.size(), get<0>(regions["left_1"]), get<1>(regions["left_1"]));
+    ROS_INFO("LEFT_2  SIZE: %d - min, average: %f, %f", left.size(), get<0>(regions["left_2"]), get<1>(regions["left_2"]));
+    ROS_INFO("BACK_1  SIZE: %d - min, average: %f, %f", back.size(), get<0>(regions["back_1"]), get<1>(regions["back_1"]));
+    ROS_INFO("BACK_2  SIZE: %d - min, average: %f, %f", back.size(), get<0>(regions["back_2"]), get<1>(regions["back_2"]));
+    /**/
+  
+  if(!mode){
+    if (!stop_laser)
+      take_narrow_action();
 
-  if(!action_in_progress){  
-    take_action();
   }else{
-    switch (avoid_obj_plan_status){
-      case -1:
-        // rotate until obj disappear from front_2
-        if(get<0>(regions["front_2"]) >= 1.5*min_obstacle_dist && action_internal_condition)
-          action_step = 1;
-        
-        // check when obj enter in back_1
-        if(get<0>(regions["back_1"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
-          action_step = 2;
+    
+    if(!action_in_progress){  
+      take_action();
+    
+    }else{
+      switch (avoid_obj_plan_status){
+        case -1:
+          // rotate until obj disappear from front_2
+          if(get<0>(regions["front_2"]) >= 1.5*min_obstacle_dist && action_internal_condition)
+            action_step = 1;
           
-      break;
-      case -2:
-        // rotate until obj disappear from front_1
-        if(get<0>(regions["front_1"]) >= 1.5*min_obstacle_dist && action_internal_condition)       
-          action_step = 1;
+          // check when obj enter in back_1
+          if(get<0>(regions["back_1"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
+            action_step = 2;
+            
+        break;
+        case -2:
+          // rotate until obj disappear from front_1
+          if(get<0>(regions["front_1"]) >= 1.5*min_obstacle_dist && action_internal_condition)       
+            action_step = 1;
 
-        // check when obj enter in back_2
-        if(get<0>(regions["back_2"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
-          action_step = 2;
+          // check when obj enter in back_2
+          if(get<0>(regions["back_2"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
+            action_step = 2;
 
-      break;
-      case -3:
-        // check front_1/front_2 free
-        if(get<0>(regions["front_1"]) >= min_space_avail && get<0>(regions["front_2"]) >= min_space_avail)
-          action_step = 1;
-      break;
-      case -4:
-        // check front_1/front_2 free
-        if(get<0>(regions["front_1"]) >= min_space_avail && get<0>(regions["front_2"]) >= min_space_avail)
-          action_step = 1;
-      break;
-      case -5:
-        // check back_1/back_2 until find object
-        if(get<0>(regions["back_1"]) <= min_space_avail || get<0>(regions["back_2"]) <= min_space_avail)
-          action_step = 1;
-        
-      break;
-      default:
-      break;
+        break;
+        case -3:
+          // check front_1/front_2 free
+          if(get<0>(regions["front_1"]) >= min_space_avail && get<0>(regions["front_2"]) >= min_space_avail)
+            action_step = 1;
+        break;
+        case -4:
+          // check front_1/front_2 free
+          if(get<0>(regions["front_1"]) >= min_space_avail && get<0>(regions["front_2"]) >= min_space_avail)
+            action_step = 1;
+        break;
+        case -5:
+          // check back_1/back_2 until find object
+          if(get<0>(regions["back_1"]) <= min_space_avail || get<0>(regions["back_2"]) <= min_space_avail)
+            action_step = 1;
+          
+        break;
+        default:
+        break;
+      }
     }
   }
 }
 
 
+/**** GOAL open space methods ****/
 void change_goal_state(int state){
   
   if (state != avoid_obj_plan_status){
@@ -694,19 +1072,20 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
   
 }
 
+
 int main(int argc, char **argv){
 
   ros::init(argc, argv, "simple_navigation_goals");
   ros::NodeHandle n;
   
-  ros::Rate r(10);
-  ros::AsyncSpinner spinner(0);
+  ros::Rate r(100);
+  //ros::AsyncSpinner spinner(0);
 
   initMap();
 
-  //ros::Subscriber odometry_marrtino = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, currentOdometry);
   //ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
   ros::Subscriber goals_status = n.subscribe("/marrtino/move_base/status", 1, resultGoalsStatus);
+  ros::Subscriber sub_odom = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, odomPoseCallback);
   ros::Subscriber sub_laser = n.subscribe("/marrtino/scan", 1, laserReadCallback);
   cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/move_base/cmd_vel", 1);
   
@@ -719,7 +1098,7 @@ int main(int argc, char **argv){
     ROS_INFO("Waiting for the move_base action server to come up");
   }
 
-
+  // Send goal and start open space
   current_goal_map_pose.header.frame_id = "marrtino_map";
   current_goal_map_pose.header.stamp = ros::Time::now();
   // --- Before final platforms, in the middle 
@@ -740,14 +1119,11 @@ int main(int argc, char **argv){
   //target_pose.position.y = 0.565774;
   //target_pose.position.z = 1.2;
   
-  
   ROS_INFO("Fist Goal pose (marrtino_map): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
       current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
       current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
 
   move_base_msgs::MoveBaseGoal final_goal = getGoal(current_goal_map_pose);
-  ac.sendGoal(final_goal);
-  r.sleep();
 
   /********* Status code *********
     
@@ -788,128 +1164,157 @@ int main(int argc, char **argv){
 
   /**/
   
-  spinner.start();
+  //spinner.start();
 
   while(ros::ok()){
 
-    switch (avoid_obj_plan_status){
-      case -10:
-        // State not initialized yet... wait
-      break;
-      case -1:
-        local_plan = true;
-        ac.cancelAllGoals();
-        while(goal_plan_status != 2 && goal_plan_status != 8){
-          r.sleep();
-        }
-        ROS_INFO("Goal plan Cancelled!");
-        ROS_INFO("Start turn Front-Right!");
-        turn_front_right_plan();
-        ac.sendGoal(final_goal);
-        local_plan = false;
-        action_in_progress = false;
-        avoid_obj_plan_status = -10;
-      break;
-      case -2:
-        local_plan = true;
-        ac.cancelAllGoals();
-        while(goal_plan_status != 2 && goal_plan_status != 8){
-          r.sleep();
-        }
-        ROS_INFO("Goal plan Cancelled!");
-        ROS_INFO("Start turn Front-Left!");
-        turn_front_left_plan();
-        ac.sendGoal(final_goal);
-        local_plan = false;
-        action_in_progress = false;
-        avoid_obj_plan_status = -10;
-      break;
-      case -3:
-        local_plan = true;
-        ac.cancelAllGoals();
-        while(goal_plan_status != 2 && goal_plan_status != 8){
-          r.sleep();
-        }
-        ROS_INFO("Goal plan Cancelled!");
-        ROS_INFO("Start turn right!");
-        turn_right_plan();
-        ac.sendGoal(final_goal);
-        action_in_progress = false;
-        avoid_obj_plan_status = -10;
-      break;
-      case -4:
-        local_plan = true;
-        ac.cancelAllGoals();
-        while(goal_plan_status != 2 && goal_plan_status != 8){
-          r.sleep();
-        }
-        ROS_INFO("Goal plan Cancelled!");
-        ROS_INFO("Start turn left!");
-        turn_left_plan();
-        ac.sendGoal(final_goal);
-        local_plan = false;
-        action_in_progress = false;
-        avoid_obj_plan_status = -10;
-      break;
-      case -5:
-        local_plan = true;
-        ac.cancelAllGoals();
-        while(goal_plan_status != 2 && goal_plan_status != 8){
-          r.sleep();
-        }
-        ROS_INFO("Goal plan Cancelled!");
-        go_back_plan();
-        ac.sendGoal(final_goal);
-        local_plan = false;
-        action_in_progress = false;
-        avoid_obj_plan_status = -10;
-      break;
-      default:
-        ROS_INFO("Unknown state - avoid_obj_plan_status: %d!", avoid_obj_plan_status);
-      break;
-    }
-
-    if(!local_plan){                // if i'm planning in a local way don't take choice of global status
-      switch (goal_plan_status){
+    if(mode){
+      switch (avoid_obj_plan_status){
         case -10:
           // State not initialized yet... wait
         break;
-        case 0:
-        
+        case -1:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          ROS_INFO("Goal plan Cancelled!");
+          ROS_INFO("Start turn Front-Right!");
+          turn_front_right_plan();
+          ac.sendGoal(final_goal);
+          local_plan = false;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
         break;
-        case 1:
-        
+        case -2:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          ROS_INFO("Goal plan Cancelled!");
+          ROS_INFO("Start turn Front-Left!");
+          turn_front_left_plan();
+          ac.sendGoal(final_goal);
+          local_plan = false;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
         break;
-        case 2:
-        
+        case -3:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          ROS_INFO("Goal plan Cancelled!");
+          ROS_INFO("Start turn right!");
+          turn_right_plan();
+          ac.sendGoal(final_goal);
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
         break;
-        case 3:
-          ROS_INFO("Goal plan Reached!");
-          return 0;
+        case -4:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          ROS_INFO("Goal plan Cancelled!");
+          ROS_INFO("Start turn left!");
+          turn_left_plan();
+          ac.sendGoal(final_goal);
+          local_plan = false;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
         break;
-        case 4:
-        
-        break;
-        case 5:
-        
-        break;
-        case 6:
-        
-        break;
-        case 7:
-        
-        break;
-        case 8:
-        
-        break;
-        case 9:
-        
+        case -5:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          ROS_INFO("Goal plan Cancelled!");
+          go_back_plan();
+          ac.sendGoal(final_goal);
+          local_plan = false;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
         break;
         default:
-          ROS_INFO("Unknown state - goal_plan_status: %d!", goal_plan_status);
+          ROS_INFO("Unknown state - avoid_obj_plan_status: %d!", avoid_obj_plan_status);
         break;
       }
+
+      if(!local_plan){                // if i'm planning in a local way don't take choice of global status
+        switch (goal_plan_status){
+          case -10:
+            // State not initialized yet... wait
+          break;
+          case 0:
+          
+          break;
+          case 1:
+          
+          break;
+          case 2:
+          
+          break;
+          case 3:
+            ROS_INFO("Goal plan Reached!");
+            return 0;
+          break;
+          case 4:
+          
+          break;
+          case 5:
+          
+          break;
+          case 6:
+          
+          break;
+          case 7:
+          
+          break;
+          case 8:
+          
+          break;
+          case 9:
+          
+          break;
+          default:
+            ROS_INFO("Unknown state - goal_plan_status: %d!", goal_plan_status);
+          break;
+        }
+      }
+
+    }else{
+      geometry_msgs::Twist msg;
+      if (global_narrow_state == 0)
+          msg = find_wall();
+      else if (global_narrow_state == 1)
+          msg = turn_right();
+      else if (global_narrow_state == 2)
+          msg = turn_left();
+      else if (global_narrow_state == 3)
+          msg = go_straight();
+      else if (global_narrow_state == 4){
+        
+        mode = true;
+        ac.sendGoal(final_goal);
+          
+      }else if (global_narrow_state == -1)
+      {
+          change_destination();
+      }
+      else{
+          ROS_INFO("Unknown state!");
+      }
+
+      cmd_pub.publish(msg);
+      ros::spinOnce();
     }
+    
 
     r.sleep();
   }
