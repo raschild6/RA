@@ -29,6 +29,8 @@ float min_obstacle_dist = 0.25, min_available_reg = 0.5, min_space_avail = 0.4, 
 bool action_in_progress = false;
 int action_step = 0;
 bool action_internal_condition = true;  // used to increase action_step for case -1, -2 (can't use if-else, it's an error)
+int counter_same_action = 0;
+
 
 /**** LASER narrow passages variables ****/
 int global_narrow_state = -1;
@@ -89,7 +91,7 @@ void change_destination(){
     case 0:
     {
       des_pose.pose.position.x = -1.327743;
-      des_pose.pose.position.y = 2.85;
+      des_pose.pose.position.y = 2.85;  // 2.9 da me poi tocca nella rotazione 
       des_pose.pose.position.z = 0;
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
@@ -124,7 +126,7 @@ void change_destination(){
     case 2:
     {
       des_pose.pose.position = robot_pose.pose.pose.position;
-      des_pose.pose.position.x = 1.23;
+      des_pose.pose.position.x = 1.18;
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
@@ -275,6 +277,7 @@ void change_destination(){
     }
     break;
     case 7:
+    case 8:
     {
       stop_laser = true;
       des_pose.pose.position = robot_pose.pose.pose.position;
@@ -291,27 +294,10 @@ void change_destination(){
       change_state(1);
     }
     break;
-    case 8:
-    {
-      stop_laser = true;
-      des_pose.pose.position = robot_pose.pose.pose.position;
-      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
-
-      des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
-      ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
-      ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
-      tf::Pose current_goal;
-      tf::poseMsgToTF(des_pose.pose, current_goal);
-
-      ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-      change_state(2);
-    }
-    break;
     case 9:
     {
       des_pose.pose.position = robot_pose.pose.pose.position;
-      des_pose.pose.position.y = 2.73;
+      des_pose.pose.position.y = 2.80;
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
@@ -492,6 +478,8 @@ void initMap()
 void sendMotorCommand(geometry_msgs::Twist msg){
   cmd_pub.publish(msg);
   ros::spinOnce();
+  ros::Duration(0.3).sleep();
+
 }
 
 geometry_msgs::Twist find_wall_left()
@@ -593,7 +581,7 @@ geometry_msgs::Twist done()
       break;
         //after go to gate 2, rotate right
       case 2:
-          narrow_action_step = 7;
+          narrow_action_step = 8;
       break;
         //after go to left corner, rotate left in step
       case 3:
@@ -721,7 +709,7 @@ void take_narrow_action(){
 }
 void check_goal(){
 
-  if ((narrow_action_step >= 0 && narrow_action_step <= 4) || narrow_action_step == 9 || narrow_action_step == 11){
+  if ((narrow_action_step >= 0 && narrow_action_step <= 4 && narrow_action_step != 2) || narrow_action_step == 9 || narrow_action_step == 11){
       double desired_yaw = atan2(des_pose.pose.position.y - robot_pose.pose.pose.position.y, des_pose.pose.position.x - robot_pose.pose.pose.position.x);
       double err_yaw = desired_yaw - yaw;
       double err_pos = sqrt(pow(des_pose.pose.position.y - robot_pose.pose.pose.position.y, 2) + pow(des_pose.pose.position.x - robot_pose.pose.pose.position.x, 2));
@@ -729,6 +717,9 @@ void check_goal(){
 
       //if (err_pos < dist_precision && err_yaw < yaw_precision)
       if (err_pos < dist_precision)
+        done();
+  }else if(narrow_action_step == 2){
+      if (des_pose.pose.position.x - robot_pose.pose.pose.position.x < dist_precision)
         done();
   }
   else if (narrow_action_step == 5){
