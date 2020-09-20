@@ -13,6 +13,11 @@ geometry_msgs::PoseStamped current_goal_map_pose;
 bool amcl_set = false;
 bool local_plan = false;
 int goal_plan_status = -10, avoid_obj_plan_status = -10;
+int id_goals = 0;
+float find_obstacle = 0.5;
+int free_right_platform = 0;
+
+bool is_goal_sended = false;
 
 /**** LASER open space variables ****/
 ros::Publisher cmd_pub;
@@ -36,19 +41,7 @@ double dist_precision = 0.1;
 
 bool stop_laser = false;
 int narrow_action_step = 0;
-/*
-  narrow_action_step  = 0   # go to end corridor
-                      = 1   # go to gate 1
-                      = 2   # go to gate 2
-                      = 3   # go to left corner
-                      = 4   # go to right corner
-                      = 5   # rotate right steps
-                      = 6   # rotate left steps
-                      = 7   # rotate right
-                      = 8   # rotate left
-                      = 9   # go to end gate 1
 
-*/
 int step_rotate_right = 0;
 int step_rotate_left = 0;
 
@@ -79,7 +72,7 @@ void change_state(int state)
 }
 void change_destination(){
 
-  ros::Duration(1).sleep();
+  ros::Duration(0.3).sleep();
   switch (narrow_action_step){
 
     case -1:
@@ -767,8 +760,6 @@ void take_action(){
     }
   }
 
-  
-
 }
 
 bool turn_right_plan(){
@@ -1124,6 +1115,14 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
             action_step = 1;
           
         break;
+        case -6:
+          // check if right platform free -> front_1 and front_2 <= 0.5
+          if(get<0>(regions["front_1"]) <= find_obstacle && get<0>(regions["front_2"]) <= find_obstacle)
+            free_right_platform++;
+          
+        break;
+        case -7:
+        break;
         default:
         break;
       }
@@ -1183,7 +1182,8 @@ void resultGoalsStatus(const actionlib_msgs::GoalStatusArray::ConstPtr &goals_st
 }
 
 void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &amcl_pose_msgs){
-  
+  MoveBaseClient ac("marrtino/move_base", true);
+
   geometry_msgs::PoseWithCovarianceStamped amcl_pose_stamped = *amcl_pose_msgs;
   geometry_msgs::Pose amcl_pose = amcl_pose_stamped.pose.pose;
   
@@ -1197,15 +1197,19 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
     return;
   }
 
-  ROS_INFO("New AMCL pose : [%f, %f, %f] - [%f, %f, %f, %f]", amcl_pose.position.x,
-        amcl_pose.position.y, amcl_pose.position.z,
-        amcl_pose.orientation.x, amcl_pose.orientation.y,
-        amcl_pose.orientation.z, amcl_pose.orientation.w); 
+  if(is_goal_sended){
+    ROS_INFO("New AMCL pose : [%f, %f, %f] - [%f, %f, %f, %f]", amcl_pose.position.x,
+          amcl_pose.position.y, amcl_pose.position.z,
+          amcl_pose.orientation.x, amcl_pose.orientation.y,
+          amcl_pose.orientation.z, amcl_pose.orientation.w); 
+  }
 
   current_goal_map_pose.pose.position.x += amcl_pose.position.x - current_amcl_pose.position.x;
   current_goal_map_pose.pose.position.y += amcl_pose.position.y - current_amcl_pose.position.y;
   current_goal_map_pose.pose.position.z += amcl_pose.position.z - current_amcl_pose.position.z;
   
+  // UNCOMMENT for move also the orientation 
+  /*
   tf2::Quaternion q_current_goal, q_old_odom, q_odom, q_translation;
   tf2::fromMsg(current_goal_map_pose.pose.orientation, q_current_goal);
   tf2::fromMsg(current_amcl_pose.orientation, q_old_odom);
@@ -1216,7 +1220,9 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
             amcl_pose.position.y - current_amcl_pose.position.y, amcl_pose.position.z - current_amcl_pose.position.z, 
             q_translation.getX(), q_translation.getY(), q_translation.getZ(), q_translation.getW());
 
-  //current_goal_map_pose.pose.orientation = tf2::toMsg(q_translation * q_current_goal);
+  
+  current_goal_map_pose.pose.orientation = tf2::toMsg(q_translation * q_current_goal);
+  */
   
   current_amcl_pose.position = amcl_pose.position;  
   current_amcl_pose.orientation = amcl_pose.orientation;
@@ -1224,6 +1230,7 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
   current_goal_map_pose.header.frame_id = "marrtino_map";
   current_goal_map_pose.header.stamp = ros::Time::now();
 
+  /*
   tf2_ros::Buffer tfBuffer;
   tf2_ros::TransformListener tfListener(tfBuffer);
   geometry_msgs::TransformStamped transformStamped;
@@ -1241,12 +1248,16 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
   current_goal_map_pose.pose = target_pose_tf;
   current_goal_map_pose.header.frame_id = "marrtino_base_footprint";
   current_goal_map_pose.header.stamp = ros::Time::now();
+  */
 
-  ROS_INFO("-> Goal pose update (marrtino_base_footprint): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
-      current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
-      current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
+  if(is_goal_sended){
+    ROS_INFO("-> Goal pose update (marrtino_base_footprint): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
+        current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
+        current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
+  }
 
-  //sendMyGoal(current_goal_map_pose);
+  if(is_goal_sended)
+    ac.sendGoal(getGoal(current_goal_map_pose));
   
 }
 
@@ -1257,9 +1268,7 @@ int main(int argc, char **argv){
   ros::NodeHandle n;
   
   ros::Rate r(100);
-  //ros::AsyncSpinner spinner(0);
-  //spinner.start();
-
+  
   initMap();
 
   //ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
@@ -1280,29 +1289,18 @@ int main(int argc, char **argv){
   // Send goal and start open space
   current_goal_map_pose.header.frame_id = "marrtino_map";
   current_goal_map_pose.header.stamp = ros::Time::now();
-  // --- Before final platforms, in the middle 
-  //current_goal_map_pose.pose.position.x = -0.223;
-  //current_goal_map_pose.pose.position.y = 1.034;
-  current_goal_map_pose.pose.position.x = 1.243;
-  current_goal_map_pose.pose.position.y = 2.415;
-  current_goal_map_pose.pose.position.z = 0.0;
-  //current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
-  current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(M_PI/2);
   
-  // --- GREEN final platform left
-  //target_pose.position.x = 0.101878;
-  //target_pose.position.y = 0.557094;
-  //target_pose.position.z = 1.3;
-  // --- GREEN final platform right
-  //target_pose.position.x = -0.482639;
-  //target_pose.position.y = 0.565774;
-  //target_pose.position.z = 1.2;
-  
-  ROS_INFO("Fist Goal pose (marrtino_map): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
+  // FIRST_GOAL --- Before final platforms, in the middle 
+  current_goal_map_pose.pose.position.x = -0.223;
+  current_goal_map_pose.pose.position.y = 1.034;
+  current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+  move_base_msgs::MoveBaseGoal current_goal = getGoal(current_goal_map_pose);
+
+
+  ROS_INFO("First Goal pose (marrtino_map): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
       current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
       current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
 
-  move_base_msgs::MoveBaseGoal final_goal = getGoal(current_goal_map_pose);
 
   /********* Status code *********
     
@@ -1330,6 +1328,7 @@ int main(int argc, char **argv){
                           = -3  # Turn right
                           = -4  # Turn left
                           = -5  # Go back
+                          = -6  # find if there's object in right platform
                           = -10 # Not initialized yet
 
     global_narrow_state   = 0   # find_wall
@@ -1338,6 +1337,17 @@ int main(int argc, char **argv){
                           = 3   # go_straight
                           = 4   # finish narrow mode -> change to open space mode
                           = -1  # Not initialized yet -> change_destination
+    
+    narrow_action_step    = 0   # go to end corridor
+                          = 1   # go to gate 1
+                          = 2   # go to gate 2
+                          = 3   # go to left corner
+                          = 4   # go to right corner
+                          = 5   # rotate right steps
+                          = 6   # rotate left steps
+                          = 7   # rotate right
+                          = 8   # rotate left
+                          = 9   # go to end gate 1                      
                           
   /*******************************
 
@@ -1350,86 +1360,11 @@ int main(int argc, char **argv){
 
   /**/
   
+  ros::AsyncSpinner spinner(0);
 
   while(ros::ok()){
 
     if(mode){
-      switch (avoid_obj_plan_status){
-        case -10:
-          // State not initialized yet... wait
-        break;
-        case -1:
-          local_plan = true;
-          ac.cancelAllGoals();
-          while(goal_plan_status != 2 && goal_plan_status != 8){
-            r.sleep();
-          }
-          ROS_INFO("Goal plan Cancelled!");
-          ROS_INFO("Start turn Front-Right!");
-          turn_front_right_plan();
-          ac.sendGoal(final_goal);
-          local_plan = false;
-          action_in_progress = false;
-          avoid_obj_plan_status = -10;
-        break;
-        case -2:
-          local_plan = true;
-          ac.cancelAllGoals();
-          while(goal_plan_status != 2 && goal_plan_status != 8){
-            r.sleep();
-          }
-          ROS_INFO("Goal plan Cancelled!");
-          ROS_INFO("Start turn Front-Left!");
-          turn_front_left_plan();
-          ac.sendGoal(final_goal);
-          local_plan = false;
-          action_in_progress = false;
-          avoid_obj_plan_status = -10;
-        break;
-        case -3:
-          local_plan = true;
-          ac.cancelAllGoals();
-          while(goal_plan_status != 2 && goal_plan_status != 8){
-            r.sleep();
-          }
-          ROS_INFO("Goal plan Cancelled!");
-          ROS_INFO("Start turn right!");
-          turn_right_plan();
-          ac.sendGoal(final_goal);
-          action_in_progress = false;
-          avoid_obj_plan_status = -10;
-        break;
-        case -4:
-          local_plan = true;
-          ac.cancelAllGoals();
-          while(goal_plan_status != 2 && goal_plan_status != 8){
-            r.sleep();
-          }
-          ROS_INFO("Goal plan Cancelled!");
-          ROS_INFO("Start turn left!");
-          turn_left_plan();
-          ac.sendGoal(final_goal);
-          local_plan = false;
-          action_in_progress = false;
-          avoid_obj_plan_status = -10;
-        break;
-        case -5:
-          local_plan = true;
-          ac.cancelAllGoals();
-          while(goal_plan_status != 2 && goal_plan_status != 8){
-            r.sleep();
-          }
-          ROS_INFO("Goal plan Cancelled!");
-          go_back_plan();
-          ac.sendGoal(final_goal);
-          local_plan = false;
-          action_in_progress = false;
-          avoid_obj_plan_status = -10;
-        break;
-        default:
-          ROS_INFO("Unknown state - avoid_obj_plan_status: %d!", avoid_obj_plan_status);
-        break;
-      }
 
       if(!local_plan){                // if i'm planning in a local way don't take choice of global status
         switch (goal_plan_status){
@@ -1446,8 +1381,57 @@ int main(int argc, char **argv){
           
           break;
           case 3:
-            ROS_INFO("Goal plan Reached!");
-            return 0;
+            ROS_INFO("Goal plan %d Reached!", id_goals);
+            action_in_progress = true;
+
+            if(id_goals == 0){
+            
+              avoid_obj_plan_status = -6;
+              
+              // wait until check right platform busy -> to be sure wait at least 3 check from laser scan, with timeout of 5 sec 
+              double start_waiting_time = ros::Time::now().toSec();
+              while(free_right_platform < 3 && ros::Time::now().toSec() - start_waiting_time < 5){
+                r.sleep();
+              }
+
+              if(free_right_platform < 3){
+                // PLATFORM_RIGHT_GOAL --- GREEN final platform right
+                current_goal_map_pose.pose.position.x = -0.482639;
+                current_goal_map_pose.pose.position.y = 0.565774;
+                current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+                current_goal = getGoal(current_goal_map_pose);
+                ac.sendGoal(current_goal);
+
+                is_goal_sended = true;
+              }else{
+                // PLATFORM_LEFT_GOAL --- GREEN final platform left
+                current_goal_map_pose.pose.position.x = 0.101878;
+                current_goal_map_pose.pose.position.y = 0.557094;
+                current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+                current_goal = getGoal(current_goal_map_pose);
+                ac.sendGoal(current_goal);
+
+                is_goal_sended = true;
+              }
+              id_goals++;
+            
+            }else if(id_goals == 1){
+              // GATE 2
+              current_goal_map_pose.pose.position.x = 1.243;
+              current_goal_map_pose.pose.position.y = 2.415;
+              current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(M_PI/2);  
+              current_goal = getGoal(current_goal_map_pose);
+              ac.sendGoal(current_goal);
+              is_goal_sended = true;
+
+              id_goals++;
+            }else{
+              spinner.stop();
+              mode = false;
+              narrow_action_step = 99999; return 0;     // cambiala nella seconda parte di narrow mode
+            }
+            action_in_progress = false;
+            avoid_obj_plan_status = -10;
           break;
           case 4:
           
@@ -1473,33 +1457,119 @@ int main(int argc, char **argv){
         }
       }
 
+      switch (avoid_obj_plan_status){
+        case -10:
+          // State not initialized yet... wait
+        break;
+        case -1:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          is_goal_sended = false;
+          ROS_INFO("Goal plan Cancelled!");
+          ROS_INFO("Start turn Front-Right!");
+          turn_front_right_plan();
+          ac.sendGoal(current_goal);
+          is_goal_sended = true;
+          local_plan = false;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
+        break;
+        case -2:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          is_goal_sended = false;
+          ROS_INFO("Goal plan Cancelled!");
+          ROS_INFO("Start turn Front-Left!");
+          turn_front_left_plan();
+          ac.sendGoal(current_goal);
+          is_goal_sended = true;
+          local_plan = false;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
+        break;
+        case -3:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          is_goal_sended = false;
+          ROS_INFO("Goal plan Cancelled!");
+          ROS_INFO("Start turn right!");
+          turn_right_plan();
+          ac.sendGoal(current_goal);
+          is_goal_sended = true;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
+        break;
+        case -4:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          is_goal_sended = false;
+          ROS_INFO("Goal plan Cancelled!");
+          ROS_INFO("Start turn left!");
+          turn_left_plan();
+          ac.sendGoal(current_goal);
+          is_goal_sended = true;
+          local_plan = false;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
+        break;
+        case -5:
+          local_plan = true;
+          ac.cancelAllGoals();
+          while(goal_plan_status != 2 && goal_plan_status != 8){
+            r.sleep();
+          }
+          is_goal_sended = false;
+          ROS_INFO("Goal plan Cancelled!");
+          go_back_plan();
+          ac.sendGoal(current_goal);
+          is_goal_sended = true;
+          local_plan = false;
+          action_in_progress = false;
+          avoid_obj_plan_status = -10;
+        break;
+        default:
+          ROS_INFO("Unknown state - avoid_obj_plan_status: %d!", avoid_obj_plan_status);
+        break;
+      }
+
     }else{
       geometry_msgs::Twist msg;
       if (global_narrow_state == 0)
-          msg = find_wall();
+        msg = find_wall();
       else if (global_narrow_state == 1)
-          msg = turn_right();
+        msg = turn_right();
       else if (global_narrow_state == 2)
-          msg = turn_left();
+        msg = turn_left();
       else if (global_narrow_state == 3)
-          msg = go_straight();
+        msg = go_straight();
       else if (global_narrow_state == 4){
-        
         mode = true;
         ROS_INFO(" ----- Sending goal -----");
-        ac.sendGoal(final_goal);
-          
-      }else if (global_narrow_state == -1)
-      {
-          change_destination();
+        ac.sendGoal(current_goal);
+        spinner.start();
+
+      }else if (global_narrow_state == -1){
+        change_destination();
       }
       else{
-          ROS_INFO("Unknown state!");
+        ROS_INFO("Unknown state!");
       }
 
-      sendMotorCommand(msg);
-    }
-    
+      if(!mode)
+        sendMotorCommand(msg);
+    }    
 
     r.sleep();
   }
