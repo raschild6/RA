@@ -223,6 +223,11 @@ void initMap()
   regions["back_2"] = tuple<float,float>(-1, -1);
 }
 
+void sendMotorCommand(geometry_msgs::Twist msg){
+  cmd_pub.publish(msg);
+  ros::spinOnce();
+}
+
 geometry_msgs::Twist find_wall()
 {
     geometry_msgs::Twist msg;
@@ -287,15 +292,13 @@ geometry_msgs::Twist done()
   if(!mode){
     global_narrow_state = -1;
     ROS_INFO("GOAL REACHED");
-    cmd_pub.publish(msg);
-ros::spinOnce();
+    sendMotorCommand(msg);
     stop_laser = false;
     next_destination();
   }
   
   return msg;
 }
-
 
 /**** LASER narrow passages callback ****/
 void take_narrow_action()
@@ -562,19 +565,16 @@ bool turn_right_plan(){
   geometry_msgs::Twist msg;
   
   msg = go_back();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(0.3).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(1).sleep();
   ROS_INFO("Back a little completed");
   
   msg = turn_right();
   double rotate_time_start = ros::Time::now().toSec();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 0){
@@ -583,26 +583,21 @@ ros::spinOnce();
   action_step = 0;
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Rotation right completed");
 
   msg = go_straight();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(1).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Go ahead completed");
 
   msg = turn_left();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(rotate_time).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Rotation left_back completed");
 
   ROS_INFO("Turn Right completed");
@@ -613,19 +608,16 @@ bool turn_left_plan(){
   geometry_msgs::Twist msg;
   
   msg = go_back();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(0.3).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(1).sleep();
   ROS_INFO("Back a little completed");
   
   msg = turn_left();
   double rotate_time_start = ros::Time::now().toSec();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
 
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 0){
@@ -634,26 +626,21 @@ ros::spinOnce();
   action_step = 0;
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Rotation left completed");
 
   msg = go_straight();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(1).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Go ahead completed");
 
   msg = turn_right();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(rotate_time).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Rotation right_back completed");
 
   ROS_INFO("Turn Left completed");
@@ -664,19 +651,16 @@ bool turn_front_right_plan(){
   geometry_msgs::Twist msg;
   
   msg = go_back();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(0.25).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Back a little completed");
   ros::Duration(0.5).sleep();
 
   msg = turn_right();
   double rotate_time_start = ros::Time::now().toSec();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   
   // wait until front object disappear from front_2 or timeout
   while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 2){
@@ -685,32 +669,27 @@ ros::spinOnce();
   }
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("End first right rotation completed");
   ros::Duration(0.5).sleep();
 
   msg = go_straight();
-  cmd_pub.publish(msg);
-ros::spinOnce();
+  sendMotorCommand(msg);
 
   // wait until object appear in back_1 
   while(action_step != 2){
     ros::Duration(0.5).sleep();
   }
   msg = done();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Go ahead completed");
   ros::Duration(0.5).sleep();
   
   msg = turn_left();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(2*rotate_time).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("End back left rotation completed");
   ros::Duration(0.5).sleep();
 
@@ -722,19 +701,16 @@ bool turn_front_left_plan(){
   geometry_msgs::Twist msg;
   
   msg = go_back();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(0.25).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Back a little completed");
   ros::Duration(0.5).sleep();
 
   msg = turn_left();
   double rotate_time_start = ros::Time::now().toSec();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   
   // wait until front object disappear from front_2 timeout
   while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 2 ){
@@ -743,32 +719,27 @@ bool turn_front_left_plan(){
   }
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("End first left rotation completed");
   ros::Duration(0.5).sleep();
 
   msg = go_straight();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
 
   // wait until object appear in back_1 
   while(action_step != 2){
     ros::Duration(0.5).sleep();
   }
   msg = done();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("Go ahead completed");
   ros::Duration(0.5).sleep();
   
   msg = turn_right();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(2*rotate_time).sleep();
   msg = done();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ROS_INFO("End back right rotation completed");
   ros::Duration(0.5).sleep();
 
@@ -781,8 +752,7 @@ bool go_back_plan(){
   
   msg = go_back();
   double back_time_start = ros::Time::now().toSec();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   
   // robot go back until an object appear in back_1 or back_2, or timeout 
   while(action_step == 0 && ros::Time::now().toSec() - back_time_start < 5){
@@ -790,8 +760,7 @@ bool go_back_plan(){
   }
   action_step = 0;
   msg = done();
-  cmd_pub.publish(msg);
-  ros::spinOnce();
+  sendMotorCommand(msg);
   ros::Duration(1).sleep();
 
   // look right and left if possible to turn somewhere
@@ -1080,6 +1049,7 @@ int main(int argc, char **argv){
   
   ros::Rate r(100);
   //ros::AsyncSpinner spinner(0);
+  //spinner.start();
 
   initMap();
 
@@ -1164,7 +1134,6 @@ int main(int argc, char **argv){
 
   /**/
   
-  //spinner.start();
 
   while(ros::ok()){
 
@@ -1311,8 +1280,7 @@ int main(int argc, char **argv){
           ROS_INFO("Unknown state!");
       }
 
-      cmd_pub.publish(msg);
-      ros::spinOnce();
+      sendMotorCommand(msg);
     }
     
 
