@@ -45,6 +45,8 @@ int narrow_action_step = 0;
 int step_rotate_right = 0;
 int step_rotate_left = 0;
 
+int choose_gate = 0;  // 0 = not used, -1 = used but gate not chosen yet, 1-2 = gate1-gate2
+
 float d_front = 0.3;
 float d_back = 0.1;
 
@@ -495,15 +497,40 @@ geometry_msgs::Twist done()
     ROS_INFO("GOAL REACHED");
     sendMotorCommand(msg);
     stop_laser = false;
+
+    /* switch case 1:
+    if(narrow_action_step == 1){
+      narrow_action_step = -1;      // assign -1 to avoid previous check goal which call done() again
+      choose_gate = -1;
+      while(choose_gate == -1){
+          ros::Duration(1).sleep();
+          ros::spin();
+      }
+
+      else
+        choose_gate = 0;
+    }
+    */
     switch (narrow_action_step){
 
         //after go to end corridor, rotate right in step
       case 0:
         narrow_action_step = 5;
       break;
-        //after go to gate 1, rotate right
+        //after go to gate 1, if gate 1 free -> rotate right else go to gate 2
       case 1:
-        narrow_action_step = 7;
+      {
+        if(choose_gate == 0)
+          choose_gate = -1;
+          
+        if(choose_gate == 1){
+          ROS_INFO("Start to go to gate 1");
+          narrow_action_step = 7;
+        }else if(choose_gate == 2){
+          ROS_INFO("Start to go to gate 2");
+          narrow_action_step = 8;
+        }
+      }
       break;
       //after go to gate 2, go to left corner
       case 2:
@@ -533,9 +560,10 @@ geometry_msgs::Twist done()
       case 7:
         narrow_action_step = 9;
       break;
+        //
       case 8:
       break;
-        // after arrive to end gate 1, start open space mode
+        //after arrive to end gate 1, start open space mode
       case 9:
         narrow_action_step = -1;
       break;
@@ -560,75 +588,67 @@ geometry_msgs::Twist done()
 }
 
 /**** LASER narrow passages callback ****/
-void take_narrow_action()
-{
-    //ROS_INFO("TAKE ACTION");
-    string state_description = "";
+void take_narrow_action(){
 
-    //float d = 0.17;  //good for min value
+  //float d = 0.17;  //good for min value
 
-    if (get<1>(regions["left_1"]) < d_front && get<1>(regions["right_2"]) > d_front)
-    {
-        /*
-        if (get<1>(regions["left_2"]) < d_back || get<1>(regions["right_1"]) > d_back)
-        {
-            ROS_INFO("TAKE ACTION \t\t GO STRAIGHT BACK");
-            move_to_wall = 0;
-            state_description = "case 4 - nothing";
-            change_state(3); //go straight forward
-        }
-        else
-        {
-        */
-        ROS_INFO("TAKE ACTION \t\t TURN RIGHT");
-
-        move_to_wall = 0;
-        state_description = "case 2 - left";
-        change_state(1); //turn right
-        //}
+  // if choose_gate = -1 -> looking for a free gate
+  if(choose_gate == -1){
+     
+    double average_front = (get<1>(regions["front_1"]) + get<1>(regions["front_2"]))/2;
+    double average_right = (get<1>(regions["right_1"]) + get<1>(regions["right_2"]))/2;
+    
+    ROS_INFO("CHOOSE GATE: average front = %f - average right = %f", average_front, average_right);
+    if(average_front > 0.0 && average_right > 0.0){
+      if (average_front < average_right){
+        ROS_INFO("\t---> Gate1 chosen!");
+        choose_gate = 1;   
+      }else{
+        ROS_INFO("\t---> Gate2 chosen!");
+        choose_gate = 2;
+      }
+    }else{
+      ROS_INFO("BOTH AVERAGES ZERO! there's some error?");
     }
-    else if (get<1>(regions["left_1"]) > d_front && get<1>(regions["right_2"]) < d_front)
+    return;
+  }
+
+  if (get<1>(regions["left_1"]) < d_front && get<1>(regions["right_2"]) > d_front)
+  {
+    ROS_INFO("TAKE ACTION \t\t TURN RIGHT");
+
+    move_to_wall = 0;
+    change_state(1); //turn right
+
+  }
+  else if (get<1>(regions["left_1"]) > d_front && get<1>(regions["right_2"]) < d_front)
+  {
+    ROS_INFO("TAKE ACTION \t\t TURN LEFT");
+
+    move_to_wall = 0;
+    change_state(2); //turn left
+  }
+  else if (get<1>(regions["left_1"]) > d_front && get<1>(regions["right_2"]) > d_front)
+  {
+    if (move_to_wall)
     {
-        /*if (get<1>(regions["left_2"]) < d_back || get<1>(regions["right_1"]) > d_back)
-        {
-            ROS_INFO("TAKE ACTION \t\t GO STRAIGHT BACK");
-            move_to_wall = 0;
-            state_description = "case 4 - nothing";
-            change_state(3); //go straight forward
-        }
-        else
-        {
-        */
-        ROS_INFO("TAKE ACTION \t\t TURN LEFT");
-
-        move_to_wall = 0;
-        state_description = "case 3 - right";
-        change_state(2); //turn left
-        //}
+      if (narrow_action_step == 0){
+        ROS_INFO("TAKE ACTION \t\t TURN LEFT TO WALL");
+        change_state(0); //find wall by rotating left and going forward
+      }
+      else if (narrow_action_step == 3 || narrow_action_step == 4 || narrow_action_step == 11){
+        ROS_INFO("TAKE ACTION \t\t TURN RIGHT TO WALL");
+        change_state(4); //find wall by rotating left and going forward
+      }
     }
-    else if (get<1>(regions["left_1"]) > d_front && get<1>(regions["right_2"]) > d_front)
+    else
     {
-        if (move_to_wall)
-        {
-
-            state_description = "case 1 - nothing";
-            if (narrow_action_step == 0){
-              ROS_INFO("TAKE ACTION \t\t TURN LEFT TO WALL");
-              change_state(0); //find wall by rotating left and going forward
-            }
-            else if (narrow_action_step == 3 || narrow_action_step == 4 || narrow_action_step == 11){
-              ROS_INFO("TAKE ACTION \t\t TURN RIGHT TO WALL");
-              change_state(4); //find wall by rotating left and going forward
-            }
-        }
-        else
-        {
-            //ROS_INFO("TAKE ACTION \t\t GO STRAIGHT");
-
-            state_description = "case 4 - nothing";
-            change_state(3); //go straight forward
-        }
+      //ROS_INFO("TAKE ACTION \t\t GO STRAIGHT");
+      change_state(3); //go straight forward
     }
+  }
+
+  
 }
 void check_goal(){
 
@@ -1114,6 +1134,7 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
 
     if(msg.ranges.at(i) <= lethal_dist){
       cmd_pub.publish(done());
+      mode = true;
       ROS_INFO("LETHAL DISTANCE OF RAY: %d !!! Interrupt all..", i);
       return;
     }
