@@ -45,10 +45,12 @@ int narrow_action_step = 0;
 int step_rotate_right = 0;
 int step_rotate_left = 0;
 
-int choose_gate = 0;  // 0 = not used, -1 = used but gate not chosen yet, 1-2 = gate1-gate2
+int choose_gate = 0;  // 0 = not used, -2 = wait new clear laser scan, -1 = used but gate not chosen yet, 1-2 = gate1-gate2
 
 float d_front = 0.3;
 float d_back = 0.1;
+
+bool isComeBack = false;
 
 /*
   Laser Scan: cycle [1:400]
@@ -121,10 +123,9 @@ void change_destination(){
     break;
     case 2:
     {
+      des_pose.pose.position = robot_pose.pose.pose.position;
       des_pose.pose.position.x = 1.23;
-      des_pose.pose.position.y = 2.66;
-      des_pose.pose.position.z = 0;
-      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
+      des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
       des_pose.header.stamp = ros::Time::now();
@@ -134,7 +135,7 @@ void change_destination(){
       tf::poseMsgToTF(des_pose.pose, current_goal);
 
       ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
-      change_state(0);
+      change_state(3);
     }
     break;
     case 3:
@@ -498,51 +499,40 @@ geometry_msgs::Twist done()
     sendMotorCommand(msg);
     stop_laser = false;
 
-    /* switch case 1:
-    if(narrow_action_step == 1){
-      narrow_action_step = -1;      // assign -1 to avoid previous check goal which call done() again
-      choose_gate = -1;
-      while(choose_gate == -1){
-          ros::Duration(1).sleep();
-          ros::spin();
-      }
-
-      else
-        choose_gate = 0;
-    }
-    */
     switch (narrow_action_step){
 
         //after go to end corridor, rotate right in step
       case 0:
         narrow_action_step = 5;
       break;
-        //after go to gate 1, if gate 1 free -> rotate right else go to gate 2
+        //after go to gate 1, if gate 1 free -> rotate right, else go to gate 2
       case 1:
       {
         if(choose_gate == 0)
-          choose_gate = -1;
+          choose_gate = -2;
           
         if(choose_gate == 1){
           ROS_INFO("Start to go to gate 1");
           narrow_action_step = 7;
+          choose_gate = 0;
         }else if(choose_gate == 2){
           ROS_INFO("Start to go to gate 2");
-          narrow_action_step = 8;
+          narrow_action_step = 2;
+          choose_gate = 0;
         }
       }
       break;
-      //after go to gate 2, go to left corner
+        //after go to gate 2, rotate right
       case 2:
-        narrow_action_step = 3;
+          narrow_action_step = 7;
       break;
-      //after go to left corner, rotate left in step
+        //after go to left corner, rotate left in step
       case 3:
         narrow_action_step = 6;
         move_to_wall = 1;
         d_front = 0.27;
       break;
-      //after go to right corner, rotate left in step
+        //after go to right corner, rotate left in step
       case 4:
         narrow_action_step = 10;
         move_to_wall = 1;
@@ -556,26 +546,23 @@ geometry_msgs::Twist done()
       case 6:
         narrow_action_step = 4;
       break;
-        //after rotate right, go to end of gate 1
+        //after rotate right, go to end of gate1 / gate2
       case 7:
+      case 8:
         narrow_action_step = 9;
       break;
-        //
-      case 8:
-      break;
-        //after arrive to end gate 1, start open space mode
+        //after arrive to end gate1 / gate2, start open space mode
       case 9:
         narrow_action_step = -1;
       break;
         //after rotate left, go to home base
       case 10:
         narrow_action_step = 11;
-        break;
+      break;
         //after arriving at base, stop
       case 11:
         narrow_action_step = -1;
-        break;
-      
+      break;
       default:
         ROS_INFO("ERROR!! narrow_action_step unknown = %d... start open space mode", narrow_action_step);
         narrow_action_step = -1;
@@ -592,15 +579,22 @@ void take_narrow_action(){
 
   //float d = 0.17;  //good for min value
 
+  // if choose_gate = -2 -> wait a clean laser scan
+  if(choose_gate == -2){
+    choose_gate = -1;
+    return;
+  }else 
   // if choose_gate = -1 -> looking for a free gate
   if(choose_gate == -1){
-     
-    double average_front = (get<1>(regions["front_1"]) + get<1>(regions["front_2"]))/2;
-    double average_right = (get<1>(regions["right_1"]) + get<1>(regions["right_2"]))/2;
+    double average_front = (get<1>(regions["front_1"]) + get<1>(regions["front_2"]));
+    double average_right = (get<1>(regions["right_1"]) + get<1>(regions["right_2"]));
+    double min_front = (get<0>(regions["front_1"]) + get<0>(regions["front_2"]));
+    double min_right = (get<0>(regions["right_1"]) + get<0>(regions["right_2"]));
     
     ROS_INFO("CHOOSE GATE: average front = %f - average right = %f", average_front, average_right);
+    ROS_INFO("CHOOSE GATE: min front = %f - min right = %f", min_front, min_right);
     if(average_front > 0.0 && average_right > 0.0){
-      if (average_front < average_right){
+      if (min_front < min_right){
         ROS_INFO("\t---> Gate1 chosen!");
         choose_gate = 1;   
       }else{
@@ -1131,7 +1125,16 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
     // Skip robot stake ray
     if(i == 0 || (i >= 41 && i <= 43) || (i >= 110 && i <= 114) || (i >= 285 && i <= 289) || (i >= 356 && i <= 358))
       continue;
-
+    
+    if(choose_gate == -1){
+      if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8){
+        if(i < 85 && i >= 115)
+          continue;
+      }else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8){
+        if(i < 185 && i >= 215)
+          continue;
+      }
+    }
     if(msg.ranges.at(i) <= lethal_dist){
       cmd_pub.publish(done());
       mode = true;
@@ -1551,7 +1554,6 @@ int main(int argc, char **argv){
               narrow_action_step = 3;
               global_narrow_state = -1;
               move_to_wall = 1;
-              return 0;     // cambiala nella seconda parte di narrow mode
             }
             action_in_progress = false;
             avoid_obj_plan_status = -10;
