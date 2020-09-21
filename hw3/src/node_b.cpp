@@ -14,21 +14,21 @@ bool amcl_set = false;
 bool local_plan = false;
 int goal_plan_status = -10, avoid_obj_plan_status = -10;
 int id_goals = 0;
-float find_obstacle = 0.5;
+float find_obstacle = 0.75;
 int free_right_platform = 0;
 
 
 /**** LASER open space variables ****/
 ros::Publisher cmd_pub;
+ros::Publisher initpose_pub;
 float range_min = 0;
 float range_max = 0;
 unordered_map<string, tuple<float, float>> regions;  // name_region, < min_value, average_value >
-int global_state = 0;
 float min_obstacle_dist = 0.25, min_available_reg = 0.5, min_space_avail = 0.4, lethal_dist = 0.1;
 bool action_in_progress = false;
 int action_step = 0;
 bool action_internal_condition = true;  // used to increase action_step for case -1, -2 (can't use if-else, it's an error)
-int counter_same_action = 0;
+
 
 
 /**** LASER narrow passages variables ****/
@@ -529,7 +529,8 @@ void initMap()
 void sendMotorCommand(geometry_msgs::Twist msg){
   cmd_pub.publish(msg);
   ros::spinOnce();
-  ros::Duration(0.1).sleep();
+  if(mode)
+    ros::Duration(0.1).sleep();
 
 }
 
@@ -666,6 +667,7 @@ geometry_msgs::Twist done()
         //after rotate left, go to home base
       case 10:
         narrow_action_step = 11;
+        move_to_wall = 1;
       break;
         //after arriving at base, stop
       case 11:
@@ -686,6 +688,17 @@ geometry_msgs::Twist done()
   }
   
   return msg;
+}
+
+void initPoseAmcl(geometry_msgs::PoseStamped initpose){
+  geometry_msgs::PoseWithCovarianceStamped initial_pose_cov;
+  initial_pose_cov.header.frame_id = "marrtino_map";
+  initial_pose_cov.header.stamp = ros::Time::now();
+
+  initial_pose_cov.pose.pose = initpose.pose;
+
+  initpose_pub.publish(initial_pose_cov);
+  ros::Duration(0.3).sleep();
 }
 
 /**** LASER narrow passages callback ****/
@@ -870,7 +883,14 @@ void odomPoseCallback(const nav_msgs::Odometry::ConstPtr &msgOdom)
     tf::poseMsgToTF(msgOdom->pose.pose, current_goal);
     yaw = tf::getYaw(current_goal.getRotation());
     //ROS_INFO("CURRENT YAW: %f", yaw);
-    check_goal();
+    if(mode){
+      geometry_msgs::PoseStamped endGate1Pose;
+      endGate1Pose.header = robot_pose.header; 
+      endGate1Pose.pose = robot_pose.pose.pose;
+      initPoseAmcl(endGate1Pose);
+    }else{
+      check_goal();
+    }
 }
 
 
@@ -1094,7 +1114,7 @@ bool turn_front_right_plan(){
   sendMotorCommand(msg);
   
   // wait until front object disappear from front_2 or timeout
-  while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 2){
+  while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 3){
     action_internal_condition = false;
     ros::Duration(0.5).sleep();
   }
@@ -1104,11 +1124,12 @@ bool turn_front_right_plan(){
   ROS_INFO("End first right rotation completed");
   ros::Duration(0.5).sleep();
 
+  double go_straight_time_start = ros::Time::now().toSec();
   msg = go_straight();
   sendMotorCommand(msg);
 
   // wait until object appear in back_1 
-  while(action_step != 2 && ros::Time::now().toSec() - rotate_time_start < 3.0){
+  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 2.0){
     ros::Duration(0.5).sleep();
   }
   msg = done();
@@ -1144,7 +1165,7 @@ bool turn_front_left_plan(){
   sendMotorCommand(msg);
   
   // wait until front object disappear from front_2 timeout
-  while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 2 ){
+  while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 3.0 ){
     action_internal_condition = false;
     ros::Duration(0.5).sleep();
   }
@@ -1154,11 +1175,12 @@ bool turn_front_left_plan(){
   ROS_INFO("End first left rotation completed");
   ros::Duration(0.5).sleep();
 
+  double go_straight_time_start = ros::Time::now().toSec();
   msg = go_straight();
   sendMotorCommand(msg);
 
   // wait until object appear in back_1 
-  while(action_step != 2 && ros::Time::now().toSec() - rotate_time_start < 3.0){
+  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 2.0){
     ros::Duration(0.5).sleep();
   }
   msg = done();
@@ -1374,14 +1396,6 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
 
 
 /**** GOAL open space methods ****/
-void change_goal_state(int state){          // NOT USED??
-  
-  if (state != avoid_obj_plan_status){
-    ROS_INFO("CHANGE_GOAL_STATE: %d", state);
-    avoid_obj_plan_status = state;
-  }
-}
-
 move_base_msgs::MoveBaseGoal getGoal(geometry_msgs::PoseStamped target_pose){
 
   move_base_msgs::MoveBaseGoal goal;
@@ -1514,6 +1528,7 @@ int main(int argc, char **argv){
   ros::Subscriber sub_odom = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, odomPoseCallback);
   ros::Subscriber sub_laser = n.subscribe("/marrtino/scan", 1, laserReadCallback);
   cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/move_base/cmd_vel", 1);
+  initpose_pub = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("/marrtino/initialpose", 1);
   
   //ros::Publisher cancel_goal = n.advertise<actionlib_msgs::GoalID>("/marrtino/move_base/cancel", 1);    ---> NOT WORK  
   
@@ -1524,21 +1539,10 @@ int main(int argc, char **argv){
     ROS_INFO("Waiting for the move_base action server to come up");
   }
 
-  // Send goal and start open space
+  move_base_msgs::MoveBaseGoal current_goal;
   current_goal_map_pose.header.frame_id = "marrtino_map";
-  current_goal_map_pose.header.stamp = ros::Time::now();
+
   
-  // FIRST_GOAL --- Before final platforms, in the middle 
-  current_goal_map_pose.pose.position.x = -0.51;
-  current_goal_map_pose.pose.position.y = 0.99;
-  current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
-  move_base_msgs::MoveBaseGoal current_goal = getGoal(current_goal_map_pose);
-
-
-  ROS_INFO("First Goal pose (marrtino_map): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
-      current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
-      current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
-
 
   /********* Status code *********
     
@@ -1587,16 +1591,7 @@ int main(int argc, char **argv){
                           = 8   # rotate left
                           = 9   # go to end gate 1                      
                           
-  /*******************************
-
-  ac.waitForResult();
-
-  if(ac.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
-    ROS_INFO("ARRIVED!");
-  else
-    ROS_INFO("FAILED!");
-
-  /**/
+  /********************************/
   
   ros::AsyncSpinner spinner(0);
 
@@ -1624,7 +1619,7 @@ int main(int argc, char **argv){
             action_in_progress = true;
 
             if(id_goals == 0){
-              
+
               avoid_obj_plan_status = -6;
               
               // wait until check right platform busy -> to be sure wait at least 3 check from laser scan, with timeout of 5 sec 
@@ -1634,19 +1629,27 @@ int main(int argc, char **argv){
               }
 
               if(free_right_platform < 3){
+                ROS_INFO(" ----- Sending goal -----");
+                // Send goal and start open space
+                current_goal_map_pose.header.stamp = ros::Time::now();
+        
                 // PLATFORM_RIGHT_GOAL --- GREEN final platform right
                 current_goal_map_pose.pose.position.x = -0.482639;
                 current_goal_map_pose.pose.position.y = 0.565774;
-                current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+                current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
                 current_goal = getGoal(current_goal_map_pose);
                 ac.sendGoal(current_goal);
 
                 
               }else{
+                ROS_INFO(" ----- Sending goal -----");
+                // Send goal and start open space
+                current_goal_map_pose.header.stamp = ros::Time::now();
+        
                 // PLATFORM_LEFT_GOAL --- GREEN final platform left
                 current_goal_map_pose.pose.position.x = 0.101878;
                 current_goal_map_pose.pose.position.y = 0.557094;
-                current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+                current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
                 current_goal = getGoal(current_goal_map_pose);
                 ac.sendGoal(current_goal);
 
@@ -1655,6 +1658,11 @@ int main(int argc, char **argv){
               id_goals++;
             
             }else if(id_goals == 1){
+              
+              ROS_INFO(" ----- Sending goal -----");
+              // Send goal and start open space
+              current_goal_map_pose.header.stamp = ros::Time::now();
+        
               // GATE 2
               current_goal_map_pose.pose.position.x = 1.243;
               current_goal_map_pose.pose.position.y = 2.415;
@@ -1672,18 +1680,23 @@ int main(int argc, char **argv){
               global_narrow_state = -1;
               move_to_wall = 1;
             }
-
+            ros::Duration(2).sleep();
             action_in_progress = false;
             avoid_obj_plan_status = -10;
           }
           break;
           case 4:
           {
+            // Send goal and start open space
+            current_goal_map_pose.header.stamp = ros::Time::now();
+        
             // come back to FIRST_GOAL 
             current_goal_map_pose.pose.position.x = -0.51;
             current_goal_map_pose.pose.position.y = 0.99;
             current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
             move_base_msgs::MoveBaseGoal current_goal = getGoal(current_goal_map_pose);
+            ROS_INFO("Plan ABORTED!! come back to middle platform position and re-plan again");
+            ROS_INFO(" ----- Sending goal -----");
 
             if(id_goals == 0){
               // fai un'operazione di recovery
@@ -1810,10 +1823,24 @@ int main(int argc, char **argv){
         
         mode = true;
         sendMotorCommand(done());
+        
         ROS_INFO(" ----- Sending goal -----");
+        // Send goal and start open space
+        current_goal_map_pose.header.stamp = ros::Time::now();
+        
+        // FIRST_GOAL --- Before final platforms, in the middle 
+        current_goal_map_pose.pose.position.x = -0.51;
+        current_goal_map_pose.pose.position.y = 1.16;
+        current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+        current_goal = getGoal(current_goal_map_pose);
         ac.sendGoal(current_goal);
+
         spinner.start();
         finish_narrow_mode_check = 0;
+        id_goals = 0;
+        action_in_progress = false;
+        avoid_obj_plan_status = -10;
+
 
       }else if (global_narrow_state == 0)
           msg = find_wall_left();
