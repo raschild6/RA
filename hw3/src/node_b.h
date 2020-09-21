@@ -38,3 +38,8 @@
 //#include <nav_core/base_global_planner.h>
 //#include <nav_core/base_local_planner.h>
 //#include <nav_core/recovery_behavior.h>
+
+
+
+
+bool saveFatalCollision();      // need declaration first cause there is an intertwining of calls

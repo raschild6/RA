@@ -24,11 +24,13 @@ ros::Publisher initpose_pub;
 float range_min = 0;
 float range_max = 0;
 unordered_map<string, tuple<float, float>> regions;  // name_region, < min_value, average_value >
-float min_obstacle_dist = 0.25, min_available_reg = 0.5, min_space_avail = 0.4, lethal_dist = 0.1;
+float min_obstacle_dist = 0.25, min_available_reg = 0.5, min_space_avail = 0.4, 
+        lethal_dist_front = 0.16, lethal_dist_back = 0.18; // There is the body of marrtino  
 bool action_in_progress = false;
 int action_step = 0;
 bool action_internal_condition = true;  // used to increase action_step for case -1, -2 (can't use if-else, it's an error)
-
+int near_collision_local_ray [] = {-1, -1};     // use during local_plan (without costmaps) to avoid collision during motors actions
+                                                      // {front_check_collision, back_check_collision}
 
 
 /**** LASER narrow passages variables ****/
@@ -53,6 +55,7 @@ float d_back = 0.1;
 
 bool isComeBack = false;
 int finish_narrow_mode_check = 0;
+
 /*
   Laser Scan: cycle [1:400]
               degree ->   back    =   [350:50]
@@ -60,10 +63,10 @@ int finish_narrow_mode_check = 0;
                           front   =   [150:250]
                           left    =   [250:350]
 
-      - robot stake:  back-right  =   [41:43]
-                      front-right =   [110:114]
-                      front-left  =   [285:289]
-                      back-left   =   [356:358]
+      - robot stake:  back-right  =   [41:43]     belongs back_2
+                      front-right =   [110:114]   belongs right_2
+                      front-left  =   [285:289]   belongs left_1
+                      back-left   =   [356:358]   belongs back_1
       (NB. start from 0 not 1) 
 */
 
@@ -99,7 +102,7 @@ void change_destination(){
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -116,7 +119,7 @@ void change_destination(){
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -133,7 +136,7 @@ void change_destination(){
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -151,7 +154,7 @@ void change_destination(){
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -169,7 +172,7 @@ void change_destination(){
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-3.130344);
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -188,7 +191,7 @@ void change_destination(){
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(M_PI/3);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -204,7 +207,7 @@ void change_destination(){
           des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -217,7 +220,7 @@ void change_destination(){
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -238,7 +241,7 @@ void change_destination(){
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(1.9);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -254,7 +257,7 @@ void change_destination(){
           des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -268,7 +271,7 @@ void change_destination(){
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(3.130344);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -285,10 +288,10 @@ void change_destination(){
       if(step_rotate_right == 0){
           ROS_INFO("START ROTATE RIGHT IN STEPS");
           des_pose.pose.position = robot_pose.pose.pose.position;
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/5);
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/7);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -298,13 +301,13 @@ void change_destination(){
           change_state(1);
           
       }else if(step_rotate_right == 1){
-          des_pose.pose.position.x = -0.58;
+          des_pose.pose.position.x = -0.6;
           des_pose.pose.position.y = 3.11; 
           des_pose.pose.position.z = 0;
           des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -314,10 +317,10 @@ void change_destination(){
           change_state(3);
       }else if(step_rotate_right == 2){
           des_pose.pose.position = robot_pose.pose.pose.position;
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2 - 0.17);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -335,7 +338,7 @@ void change_destination(){
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -348,11 +351,11 @@ void change_destination(){
     case 9:
     {
       des_pose.pose.position = robot_pose.pose.pose.position;
-      des_pose.pose.position.y = 2.6;
+      des_pose.pose.position.y = 2.65;
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -371,7 +374,7 @@ void change_destination(){
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-2.828036);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -387,7 +390,7 @@ void change_destination(){
           des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -401,7 +404,7 @@ void change_destination(){
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-1.585109);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -421,7 +424,7 @@ void change_destination(){
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-3.130344);
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -441,7 +444,7 @@ void change_destination(){
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
       des_pose.header.frame_id = "marrtino_map";
-      des_pose.header.stamp = ros::Time::now();
+      des_pose.header.stamp = ros::Time(0); /**/
       ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
       ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
       tf::Pose current_goal;
@@ -457,7 +460,7 @@ void change_destination(){
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-1.087232); //-1.087232  -0.867799
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -473,7 +476,7 @@ void change_destination(){
           des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -487,7 +490,7 @@ void change_destination(){
           des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(1.574898);
 
           des_pose.header.frame_id = "marrtino_map";
-          des_pose.header.stamp = ros::Time::now();
+          des_pose.header.stamp = ros::Time(0); /**/
           ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
           ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
           tf::Pose current_goal;
@@ -693,13 +696,14 @@ geometry_msgs::Twist done()
 void initPoseAmcl(geometry_msgs::PoseStamped initpose){
   geometry_msgs::PoseWithCovarianceStamped initial_pose_cov;
   initial_pose_cov.header.frame_id = "marrtino_map";
-  initial_pose_cov.header.stamp = ros::Time::now();
+  initial_pose_cov.header.stamp = ros::Time(0); /**/
 
   initial_pose_cov.pose.pose = initpose.pose;
 
   initpose_pub.publish(initial_pose_cov);
   ros::Duration(0.3).sleep();
 }
+
 
 /**** LASER narrow passages callback ****/
 void take_narrow_action(){
@@ -982,7 +986,9 @@ void take_action(){
     }
     
     if(space_states.size() != 0){
-      
+
+      action_in_progress = true;     
+       
       // prefer to pass in front of right/left, if possible
       if(space_states[0] == -1 || space_states[0] == -2){
         avoid_obj_plan_status = space_states[0];
@@ -1004,7 +1010,6 @@ void take_action(){
         }
       }
 
-      action_in_progress = true;
     }else{
       ROS_INFO("space_states empty");
     }
@@ -1029,7 +1034,9 @@ bool turn_right_plan(){
   
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 0){
-    ros::Duration(1).sleep();
+    if(saveFatalCollision())
+      return false;
+    ros::Duration(0.3).sleep();
   }
   action_step = 0;
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
@@ -1072,7 +1079,9 @@ bool turn_left_plan(){
 
   // rotate robot until front object disappear from front_1/front_2 
   while(action_step == 0){
-    ros::Duration(1).sleep();
+    if(saveFatalCollision())
+      return false;
+    ros::Duration(0.3).sleep();
   }
   action_step = 0;
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
@@ -1115,8 +1124,10 @@ bool turn_front_right_plan(){
   
   // wait until front object disappear from front_2 or timeout
   while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 3){
-    action_internal_condition = false;
-    ros::Duration(0.5).sleep();
+    if(saveFatalCollision())
+      return false;
+    action_internal_condition = false;    // switch next action_step
+    ros::Duration(0.3).sleep();
   }
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
@@ -1127,10 +1138,13 @@ bool turn_front_right_plan(){
   double go_straight_time_start = ros::Time::now().toSec();
   msg = go_straight();
   sendMotorCommand(msg);
+  ros::Duration(0.5).sleep();
 
   // wait until object appear in back_1 
-  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 2.0){
-    ros::Duration(0.5).sleep();
+  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 3.0){
+    if(saveFatalCollision())
+      return false;
+    ros::Duration(0.3).sleep();
   }
   msg = done();
   sendMotorCommand(msg);
@@ -1164,10 +1178,12 @@ bool turn_front_left_plan(){
   double rotate_time_start = ros::Time::now().toSec();
   sendMotorCommand(msg);
   
-  // wait until front object disappear from front_2 timeout
+  // wait until front object disappear from front_2 or timeout
   while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 3.0 ){
-    action_internal_condition = false;
-    ros::Duration(0.5).sleep();
+    if(saveFatalCollision())
+      return false;
+    action_internal_condition = false;    // switch next action_step
+    ros::Duration(0.3).sleep();
   }
   double rotate_time = ros::Time::now().toSec() - rotate_time_start;
   msg = done();
@@ -1178,10 +1194,13 @@ bool turn_front_left_plan(){
   double go_straight_time_start = ros::Time::now().toSec();
   msg = go_straight();
   sendMotorCommand(msg);
+  ros::Duration(0.5).sleep();
 
-  // wait until object appear in back_1 
-  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 2.0){
-    ros::Duration(0.5).sleep();
+  // wait until object disappear in right_2 or timeout 
+  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 3.0){
+    if(saveFatalCollision())
+      return false;
+    ros::Duration(0.3).sleep();
   }
   msg = done();
   sendMotorCommand(msg);
@@ -1246,6 +1265,31 @@ bool go_back_plan(){
 
   ROS_INFO("Back completed");
 }
+bool saveFatalCollision(){
+  if(near_collision_local_ray[0] != -1 || near_collision_local_ray[1] != -1){
+    sendMotorCommand(done());
+    // check double near collision
+    if(near_collision_local_ray[0] != -1 && near_collision_local_ray[1] != -1){  
+      ROS_INFO("... how did you do that? ... hope DWAPlanner and GlobalPlanner will help you");
+    }else 
+      // near collision front -> go back!
+      if(near_collision_local_ray[0] != -1){  
+        ROS_INFO("NEAR COLLISION FRONT! Stop all and try to go back!");
+        avoid_obj_plan_status = -5;
+        go_back_plan();
+    
+    }else{
+      // near collision back -> ... need to do something? for now, leave to planner!
+        ROS_INFO("NEAR COLLISION BACK! Stop motors but leave to try to planner!");
+    }
+    near_collision_local_ray[0] = -1;
+    near_collision_local_ray[1] = -1;
+    return true;
+
+  }else{
+    return false;
+  }
+}
 
 void laserReadCallback(const sensor_msgs::LaserScan &msg){
 
@@ -1262,7 +1306,7 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
     //ROS_INFO("msg at %d: %f", i, msg.ranges.at(i));
 
     // Skip robot stake ray
-    if(i == 0 || (i >= 41 && i <= 43) || (i >= 110 && i <= 114) || (i >= 285 && i <= 289) || (i >= 356 && i <= 358))
+    if(i == 0 || i == 399 || (i >= 41 && i <= 43) || (i >= 110 && i <= 114) || (i >= 285 && i <= 289) || (i >= 356 && i <= 358))
       continue;
     
     if(choose_gate == -1){
@@ -1275,14 +1319,14 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
       }
     }
     
-    /*
+    /** /
     if(msg.ranges.at(i) <= lethal_dist){
       cmd_pub.publish(done());
       mode = true;
       ROS_INFO("LETHAL DISTANCE OF RAY: %d !!! Interrupt all..", i);
       return;
     }
-    */
+    /**/
 
     if (msg.ranges.at(i) > range_min){
       if(msg.ranges.at(i) > 12.0){
@@ -1297,14 +1341,24 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
 
       }else{
 
-        if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size()))
-            back.push_back(msg.ranges.at(i));
-        else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8)
-            right.push_back(msg.ranges.at(i));
-        else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8)
-            front.push_back(msg.ranges.at(i));
-        else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8)
-            left.push_back(msg.ranges.at(i));
+        if ((i >= 0 && i < msg.ranges.size() * 1/8) || (i >= msg.ranges.size() * 7/8 && i < msg.ranges.size())){
+          if(msg.ranges.at(i) <= lethal_dist_back && local_plan && mode){
+            near_collision_local_ray[1] = i;  // Near collision back found
+            ROS_INFO("%d RAY NEAR LETHAL COLLISION - val: %f",i,msg.ranges.at(i));
+          }else
+            near_collision_local_ray[1] = -1;
+          back.push_back(msg.ranges.at(i));
+        }else if (i < msg.ranges.size() * 3/8 && i >= msg.ranges.size() * 1/8){
+          right.push_back(msg.ranges.at(i));
+        }else if (i < msg.ranges.size() * 5/8 && i >= msg.ranges.size() * 3/8){
+          if(msg.ranges.at(i) <= lethal_dist_front && local_plan && mode){
+            near_collision_local_ray[0] = i;  // Near collision front found
+          }else
+            near_collision_local_ray[0] = -1;
+          front.push_back(msg.ranges.at(i));
+        }else if (i < msg.ranges.size() * 7/8 && i >= msg.ranges.size() * 5/8){
+          left.push_back(msg.ranges.at(i));
+        } 
       }
     }
   }
@@ -1347,9 +1401,12 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
           // rotate until obj disappear from front_2
           if(get<0>(regions["front_2"]) >= 1.5*min_obstacle_dist && action_internal_condition)
             action_step = 1;
-          
+
           // check when obj enter in back_1
-          if(get<0>(regions["back_1"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
+          //if(get<0>(regions["back_1"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
+          
+          // check when obj exit from right_2
+          if(get<0>(regions["right_2"]) >= 1.5*min_obstacle_dist && !action_internal_condition)
             action_step = 2;
             
         break;
@@ -1359,7 +1416,10 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
             action_step = 1;
 
           // check when obj enter in back_2
-          if(get<0>(regions["back_2"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
+          //if(get<0>(regions["back_2"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
+          
+          // check when obj exit from left_1
+          if(get<0>(regions["left_1"]) >= 1.5*min_obstacle_dist && !action_internal_condition)
             action_step = 2;
 
         break;
@@ -1419,7 +1479,7 @@ move_base_msgs::MoveBaseGoal getGoal(geometry_msgs::PoseStamped target_pose){
   
   goal.target_pose = target_pose;
   goal.target_pose.header.frame_id = "marrtino_map";
-  goal.target_pose.header.stamp = ros::Time::now();
+  goal.target_pose.header.stamp = ros::Time(0); /**/
 
   ROS_INFO("Goal pose (marrtino_map): [%f, %f, %f] - [%f, %f, %f, %f]", goal.target_pose.pose.position.x, goal.target_pose.pose.position.y,
       goal.target_pose.pose.position.z, goal.target_pose.pose.orientation.x, goal.target_pose.pose.orientation.y, 
@@ -1483,7 +1543,7 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
   current_amcl_pose.orientation = amcl_pose.orientation;
 
   current_goal_map_pose.header.frame_id = "marrtino_map";
-  current_goal_map_pose.header.stamp = ros::Time::now();
+  current_goal_map_pose.header.stamp = ros::Time(0); /**/
 
   /*
   tf2_ros::Buffer tfBuffer;
@@ -1502,10 +1562,10 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
 
   current_goal_map_pose.pose = target_pose_tf;
   current_goal_map_pose.header.frame_id = "marrtino_base_footprint";
-  current_goal_map_pose.header.stamp = ros::Time::now();
+  current_goal_map_pose.header.stamp = ros::Time(0);
   */
 
-  ROS_INFO("-> Goal pose update (marrtino_base_footprint): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
+  ROS_INFO("-> Goal pose update : [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
       current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
       current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
 
@@ -1631,7 +1691,7 @@ int main(int argc, char **argv){
               if(free_right_platform < 3){
                 ROS_INFO(" ----- Sending goal -----");
                 // Send goal and start open space
-                current_goal_map_pose.header.stamp = ros::Time::now();
+                current_goal_map_pose.header.stamp = ros::Time(0); /**/
         
                 // PLATFORM_RIGHT_GOAL --- GREEN final platform right
                 current_goal_map_pose.pose.position.x = -0.482639;
@@ -1642,9 +1702,31 @@ int main(int argc, char **argv){
 
                 
               }else{
+                /*
+                local_plan = true;
+                action_in_progress = true;
+                avoid_obj_plan_status = -5;
+                action_step = 0;
+                geometry_msgs::Twist msg;
+                msg = go_back();
+                double back_time_start = ros::Time::now().toSec();
+                sendMotorCommand(msg);
+                
+                // robot go back until an object appear in back_1 or back_2, or timeout 
+                while(action_step == 0 && ros::Time::now().toSec() - back_time_start < 3){
+                  ros::Duration(1).sleep();
+                }
+                action_step = 0;
+                msg = done();
+                sendMotorCommand(msg);
+                ros::Duration(1).sleep();
+                local_plan = false;
+                action_in_progress = false;
+                avoid_obj_plan_status = -10;
+                */
                 ROS_INFO(" ----- Sending goal -----");
                 // Send goal and start open space
-                current_goal_map_pose.header.stamp = ros::Time::now();
+                current_goal_map_pose.header.stamp = ros::Time(0); /**/
         
                 // PLATFORM_LEFT_GOAL --- GREEN final platform left
                 current_goal_map_pose.pose.position.x = 0.101878;
@@ -1661,7 +1743,7 @@ int main(int argc, char **argv){
               
               ROS_INFO(" ----- Sending goal -----");
               // Send goal and start open space
-              current_goal_map_pose.header.stamp = ros::Time::now();
+              current_goal_map_pose.header.stamp = ros::Time(0); /**/
         
               // GATE 2
               current_goal_map_pose.pose.position.x = 1.243;
@@ -1688,23 +1770,30 @@ int main(int argc, char **argv){
           case 4:
           {
             // Send goal and start open space
-            current_goal_map_pose.header.stamp = ros::Time::now();
+            current_goal_map_pose.header.stamp = ros::Time(0); /**/
         
             // come back to FIRST_GOAL 
             current_goal_map_pose.pose.position.x = -0.51;
             current_goal_map_pose.pose.position.y = 0.99;
             current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
             move_base_msgs::MoveBaseGoal current_goal = getGoal(current_goal_map_pose);
-            ROS_INFO("Plan ABORTED!! come back to middle platform position and re-plan again");
-            ROS_INFO(" ----- Sending goal -----");
+            ROS_INFO("___ Plan ABORTED!! come back to middle platform position and re-plan again ___");
 
             if(id_goals == 0){
-              // fai un'operazione di recovery
+              // Recovery action -> go back
+              ROS_INFO("___ RECOVERY ACTION -> GO BACK ___");
+              local_plan = true;
+              action_in_progress = true;
+              avoid_obj_plan_status = -5;
+              go_back_plan();
+              ROS_INFO(" ----- Sending goal -----");
               ac.sendGoal(current_goal);
             }else if(id_goals == 1 || id_goals == 2){
+              ROS_INFO(" ----- Sending goal -----");
               ac.sendGoal(current_goal);
               id_goals--;
             }
+            local_plan = false;
             action_in_progress = false;
             avoid_obj_plan_status = -10;
           }
@@ -1826,12 +1915,12 @@ int main(int argc, char **argv){
         
         ROS_INFO(" ----- Sending goal -----");
         // Send goal and start open space
-        current_goal_map_pose.header.stamp = ros::Time::now();
+        current_goal_map_pose.header.stamp = ros::Time(0); /**/
         
         // FIRST_GOAL --- Before final platforms, in the middle 
-        current_goal_map_pose.pose.position.x = -0.51;
-        current_goal_map_pose.pose.position.y = 1.16;
-        current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+        current_goal_map_pose.pose.position.x = -0.55;
+        current_goal_map_pose.pose.position.y = 1.08;
+        current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2 + 0.1);
         current_goal = getGoal(current_goal_map_pose);
         ac.sendGoal(current_goal);
 
