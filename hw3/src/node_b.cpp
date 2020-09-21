@@ -17,7 +17,6 @@ int id_goals = 0;
 float find_obstacle = 0.5;
 int free_right_platform = 0;
 
-bool is_goal_sended = false;
 
 /**** LASER open space variables ****/
 ros::Publisher cmd_pub;
@@ -53,7 +52,7 @@ float d_front = 0.3;
 float d_back = 0.1;
 
 bool isComeBack = false;
-
+int finish_narrow_mode_check = 0;
 /*
   Laser Scan: cycle [1:400]
               degree ->   back    =   [350:50]
@@ -85,13 +84,17 @@ void change_destination(){
   switch (narrow_action_step){
 
     case -1:
+    {
       change_state(5);      
-      break;
+      finish_narrow_mode_check = 5;
+      ROS_INFO("STATE 5 ACTIVATED - Finish narrow mode");
+    }
+    break;
     
     case 0:
     {
       des_pose.pose.position.x = -1.327743;
-      des_pose.pose.position.y = 2.85;  // 2.9 da me poi tocca nella rotazione 
+      des_pose.pose.position.y = 2.9;  // 2.9 da me poi tocca nella rotazione 
       des_pose.pose.position.z = 0;
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
@@ -109,7 +112,7 @@ void change_destination(){
     case 1:
     {
       des_pose.pose.position = robot_pose.pose.pose.position;
-      des_pose.pose.position.x = -0.54;
+      des_pose.pose.position.x = -0.64;
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
@@ -182,7 +185,7 @@ void change_destination(){
       if(step_rotate_right == 0){
           ROS_INFO("START ROTATE RIGHT IN STEPS");
           des_pose.pose.position = robot_pose.pose.pose.position;
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(1.198);
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(M_PI/3);
 
           des_pose.header.frame_id = "marrtino_map";
           des_pose.header.stamp = ros::Time::now();
@@ -196,7 +199,7 @@ void change_destination(){
           
       }else if(step_rotate_right == 1){
           des_pose.pose.position.x = -1.24;
-          des_pose.pose.position.y = 3.16; 
+          des_pose.pose.position.y = 3.185;//3.16; 
           des_pose.pose.position.z = 0;
           des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
@@ -277,6 +280,54 @@ void change_destination(){
     }
     break;
     case 7:
+    {
+      stop_laser = true;
+      if(step_rotate_right == 0){
+          ROS_INFO("START ROTATE RIGHT IN STEPS");
+          des_pose.pose.position = robot_pose.pose.pose.position;
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/5);
+
+          des_pose.header.frame_id = "marrtino_map";
+          des_pose.header.stamp = ros::Time::now();
+          ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+          ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+          tf::Pose current_goal;
+          tf::poseMsgToTF(des_pose.pose, current_goal);
+
+          ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+          change_state(1);
+          
+      }else if(step_rotate_right == 1){
+          des_pose.pose.position.x = -0.58;
+          des_pose.pose.position.y = 3.11; 
+          des_pose.pose.position.z = 0;
+          des_pose.pose.orientation = robot_pose.pose.pose.orientation;
+
+          des_pose.header.frame_id = "marrtino_map";
+          des_pose.header.stamp = ros::Time::now();
+          ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+          ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+          tf::Pose current_goal;
+          tf::poseMsgToTF(des_pose.pose, current_goal);
+
+          ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+          change_state(3);
+      }else if(step_rotate_right == 2){
+          des_pose.pose.position = robot_pose.pose.pose.position;
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+
+          des_pose.header.frame_id = "marrtino_map";
+          des_pose.header.stamp = ros::Time::now();
+          ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+          ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+          tf::Pose current_goal;
+          tf::poseMsgToTF(des_pose.pose, current_goal);
+
+          ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+          change_state(1);
+      }
+    }
+    break;
     case 8:
     {
       stop_laser = true;
@@ -297,7 +348,7 @@ void change_destination(){
     case 9:
     {
       des_pose.pose.position = robot_pose.pose.pose.position;
-      des_pose.pose.position.y = 2.80;
+      des_pose.pose.position.y = 2.6;
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
@@ -457,7 +508,7 @@ void change_destination(){
 void next_destination(int narrow_action)
 {
   narrow_action_step = narrow_action;
-  ROS_INFO("NEXT DESTINATION");
+  ROS_INFO("NEXT DESTINATION - state: %d", narrow_action_step);
   change_destination();
 }
 
@@ -478,7 +529,7 @@ void initMap()
 void sendMotorCommand(geometry_msgs::Twist msg){
   cmd_pub.publish(msg);
   ros::spinOnce();
-  ros::Duration(0.3).sleep();
+  ros::Duration(0.1).sleep();
 
 }
 
@@ -722,7 +773,7 @@ void check_goal(){
       if (des_pose.pose.position.x - robot_pose.pose.pose.position.x < dist_precision)
         done();
   }
-  else if (narrow_action_step == 5){
+  else if (narrow_action_step == 5 || narrow_action_step == 7){
       tf::Pose current_goal;
       tf::poseMsgToTF(des_pose.pose, current_goal);
       tf::Pose current_pose;
@@ -734,7 +785,7 @@ void check_goal(){
       msg.angular.z = 0;    
       
       if(step_rotate_right == 0 || step_rotate_right == 2){
-          if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01){
+          if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.1){
               
               if(step_rotate_right == 0) 
                   ROS_INFO("FIRST STEP TURN RIGHT COMPLETED"); 
@@ -755,7 +806,7 @@ void check_goal(){
               change_destination();
           }
       }else{
-          if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01){
+          if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.1){
               done();
               step_rotate_right = 0;
           }
@@ -800,13 +851,13 @@ void check_goal(){
       }
     }
   }
-  else if (narrow_action_step == 7 || narrow_action_step == 8){
+  else if (narrow_action_step == 8){
     tf::Pose current_goal;
     tf::poseMsgToTF(des_pose.pose, current_goal);
     tf::Pose current_pose;
     tf::poseMsgToTF(robot_pose.pose.pose, current_pose);
 
-    if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01)
+    if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.1)
       done();
   }
 }
@@ -1057,7 +1108,7 @@ bool turn_front_right_plan(){
   sendMotorCommand(msg);
 
   // wait until object appear in back_1 
-  while(action_step != 2){
+  while(action_step != 2 && ros::Time::now().toSec() - rotate_time_start < 3.0){
     ros::Duration(0.5).sleep();
   }
   msg = done();
@@ -1107,7 +1158,7 @@ bool turn_front_left_plan(){
   sendMotorCommand(msg);
 
   // wait until object appear in back_1 
-  while(action_step != 2){
+  while(action_step != 2 && ros::Time::now().toSec() - rotate_time_start < 3.0){
     ros::Duration(0.5).sleep();
   }
   msg = done();
@@ -1201,13 +1252,15 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
           continue;
       }
     }
+    
+    /*
     if(msg.ranges.at(i) <= lethal_dist){
       cmd_pub.publish(done());
       mode = true;
       ROS_INFO("LETHAL DISTANCE OF RAY: %d !!! Interrupt all..", i);
       return;
     }
-
+    */
 
     if (msg.ranges.at(i) > range_min){
       if(msg.ranges.at(i) > 12.0){
@@ -1386,12 +1439,11 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
     return;
   }
 
-  if(is_goal_sended){
     ROS_INFO("New AMCL pose : [%f, %f, %f] - [%f, %f, %f, %f]", amcl_pose.position.x,
           amcl_pose.position.y, amcl_pose.position.z,
           amcl_pose.orientation.x, amcl_pose.orientation.y,
           amcl_pose.orientation.z, amcl_pose.orientation.w); 
-  }
+  
 
   current_goal_map_pose.pose.position.x += amcl_pose.position.x - current_amcl_pose.position.x;
   current_goal_map_pose.pose.position.y += amcl_pose.position.y - current_amcl_pose.position.y;
@@ -1439,14 +1491,11 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
   current_goal_map_pose.header.stamp = ros::Time::now();
   */
 
-  if(is_goal_sended){
-    ROS_INFO("-> Goal pose update (marrtino_base_footprint): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
-        current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
-        current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
-  }
+  ROS_INFO("-> Goal pose update (marrtino_base_footprint): [%f, %f, %f] - [%f, %f, %f, %f]", current_goal_map_pose.pose.position.x, current_goal_map_pose.pose.position.y,
+      current_goal_map_pose.pose.position.z, current_goal_map_pose.pose.orientation.x, current_goal_map_pose.pose.orientation.y, 
+      current_goal_map_pose.pose.orientation.z, current_goal_map_pose.pose.orientation.w);
 
-  if(is_goal_sended)
-    ac.sendGoal(getGoal(current_goal_map_pose));
+  ac.sendGoal(getGoal(current_goal_map_pose));
   
 }
 
@@ -1480,8 +1529,8 @@ int main(int argc, char **argv){
   current_goal_map_pose.header.stamp = ros::Time::now();
   
   // FIRST_GOAL --- Before final platforms, in the middle 
-  current_goal_map_pose.pose.position.x = -0.223;
-  current_goal_map_pose.pose.position.y = 1.034;
+  current_goal_map_pose.pose.position.x = -0.51;
+  current_goal_map_pose.pose.position.y = 0.99;
   current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
   move_base_msgs::MoveBaseGoal current_goal = getGoal(current_goal_map_pose);
 
@@ -1570,11 +1619,12 @@ int main(int argc, char **argv){
           
           break;
           case 3:
+          {
             ROS_INFO("Goal plan %d Reached!", id_goals);
             action_in_progress = true;
 
             if(id_goals == 0){
-            
+              
               avoid_obj_plan_status = -6;
               
               // wait until check right platform busy -> to be sure wait at least 3 check from laser scan, with timeout of 5 sec 
@@ -1591,7 +1641,7 @@ int main(int argc, char **argv){
                 current_goal = getGoal(current_goal_map_pose);
                 ac.sendGoal(current_goal);
 
-                is_goal_sended = true;
+                
               }else{
                 // PLATFORM_LEFT_GOAL --- GREEN final platform left
                 current_goal_map_pose.pose.position.x = 0.101878;
@@ -1600,7 +1650,7 @@ int main(int argc, char **argv){
                 current_goal = getGoal(current_goal_map_pose);
                 ac.sendGoal(current_goal);
 
-                is_goal_sended = true;
+                
               }
               id_goals++;
             
@@ -1611,9 +1661,10 @@ int main(int argc, char **argv){
               current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(M_PI/2);  
               current_goal = getGoal(current_goal_map_pose);
               ac.sendGoal(current_goal);
-              is_goal_sended = true;
+              
 
               id_goals++;
+            
             }else{
               spinner.stop();
               mode = false;
@@ -1621,11 +1672,29 @@ int main(int argc, char **argv){
               global_narrow_state = -1;
               move_to_wall = 1;
             }
+
             action_in_progress = false;
             avoid_obj_plan_status = -10;
+          }
           break;
           case 4:
-          
+          {
+            // come back to FIRST_GOAL 
+            current_goal_map_pose.pose.position.x = -0.51;
+            current_goal_map_pose.pose.position.y = 0.99;
+            current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
+            move_base_msgs::MoveBaseGoal current_goal = getGoal(current_goal_map_pose);
+
+            if(id_goals == 0){
+              // fai un'operazione di recovery
+              ac.sendGoal(current_goal);
+            }else if(id_goals == 1 || id_goals == 2){
+              ac.sendGoal(current_goal);
+              id_goals--;
+            }
+            action_in_progress = false;
+            avoid_obj_plan_status = -10;
+          }
           break;
           case 5:
           
@@ -1658,12 +1727,12 @@ int main(int argc, char **argv){
           while(goal_plan_status != 2 && goal_plan_status != 8){
             r.sleep();
           }
-          is_goal_sended = false;
+          
           ROS_INFO("Goal plan Cancelled!");
           ROS_INFO("Start turn Front-Right!");
           turn_front_right_plan();
           ac.sendGoal(current_goal);
-          is_goal_sended = true;
+          
           local_plan = false;
           action_in_progress = false;
           avoid_obj_plan_status = -10;
@@ -1674,12 +1743,12 @@ int main(int argc, char **argv){
           while(goal_plan_status != 2 && goal_plan_status != 8){
             r.sleep();
           }
-          is_goal_sended = false;
+          
           ROS_INFO("Goal plan Cancelled!");
           ROS_INFO("Start turn Front-Left!");
           turn_front_left_plan();
           ac.sendGoal(current_goal);
-          is_goal_sended = true;
+          
           local_plan = false;
           action_in_progress = false;
           avoid_obj_plan_status = -10;
@@ -1690,12 +1759,12 @@ int main(int argc, char **argv){
           while(goal_plan_status != 2 && goal_plan_status != 8){
             r.sleep();
           }
-          is_goal_sended = false;
+          
           ROS_INFO("Goal plan Cancelled!");
           ROS_INFO("Start turn right!");
           turn_right_plan();
           ac.sendGoal(current_goal);
-          is_goal_sended = true;
+          
           action_in_progress = false;
           avoid_obj_plan_status = -10;
         break;
@@ -1705,12 +1774,12 @@ int main(int argc, char **argv){
           while(goal_plan_status != 2 && goal_plan_status != 8){
             r.sleep();
           }
-          is_goal_sended = false;
+          
           ROS_INFO("Goal plan Cancelled!");
           ROS_INFO("Start turn left!");
           turn_left_plan();
           ac.sendGoal(current_goal);
-          is_goal_sended = true;
+          
           local_plan = false;
           action_in_progress = false;
           avoid_obj_plan_status = -10;
@@ -1721,11 +1790,11 @@ int main(int argc, char **argv){
           while(goal_plan_status != 2 && goal_plan_status != 8){
             r.sleep();
           }
-          is_goal_sended = false;
+          
           ROS_INFO("Goal plan Cancelled!");
           go_back_plan();
           ac.sendGoal(current_goal);
-          is_goal_sended = true;
+          
           local_plan = false;
           action_in_progress = false;
           avoid_obj_plan_status = -10;
@@ -1737,7 +1806,16 @@ int main(int argc, char **argv){
 
     }else{
       geometry_msgs::Twist msg;
-      if (global_narrow_state == 0)
+      if (global_narrow_state == 5 || finish_narrow_mode_check == 5){
+        
+        mode = true;
+        sendMotorCommand(done());
+        ROS_INFO(" ----- Sending goal -----");
+        ac.sendGoal(current_goal);
+        spinner.start();
+        finish_narrow_mode_check = 0;
+
+      }else if (global_narrow_state == 0)
           msg = find_wall_left();
       else if (global_narrow_state == 1)
         msg = turn_right();
@@ -1747,14 +1825,7 @@ int main(int argc, char **argv){
           msg = go_straight();
       else if (global_narrow_state == 4)
           msg = find_wall_right();
-      else if (global_narrow_state == 5){
-        
-        mode = true;
-        ROS_INFO(" ----- Sending goal -----");
-        ac.sendGoal(current_goal);
-        spinner.start();
-
-      }else if (global_narrow_state == -1){
+      else if (global_narrow_state == -1){
         change_destination();
       }
       else{
