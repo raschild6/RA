@@ -24,3 +24,9 @@ compile_commands_all.json
 compile_commands_slow.json
 
 regex.txt
+
+hw3/src/.vscode/c_cpp_properties.json
+
+hw3/src/.vscode/settings.json
+
+rqt_reconfigure/

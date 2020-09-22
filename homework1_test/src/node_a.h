@@ -76,11 +76,3 @@
 
 #include "apriltag_ros/AprilTagDetectionArray.h"
 #include "apriltag_ros/AprilTagDetection.h"
-
-namespace Hm1{
-
-	class hm1{	
-		
-		public:
-	};
-}
