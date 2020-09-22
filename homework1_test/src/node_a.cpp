@@ -94,6 +94,9 @@ float paramsHex[12] = 	{0.001, 0.001, 0.03, 0.03, 0.03, 10.0, 5.0, 0.01, 0.01, 0
 	paramsTrian[12] = 	{0.001, 0.001, 0.03, 0.03, 0.03, 10.0, 5.0, 0.005, 0.01, 0.03, 3.0, 0.05};
 
 
+bool stampResult = false;
+
+
 // ----- FAST TRIANGULATION ----- */
 /*
 double uniform_deviate (int seed){
@@ -354,16 +357,18 @@ void normalsVis (PointCloud<PointType>::ConstPtr cloud, PointCloud<Normal>::Cons
 	// --------------------------------------------------------
 	// -----Open 3D viewer and add point cloud and normals-----
 	// --------------------------------------------------------
-	visualization::PCLVisualizer viewer (name_viewer.data.c_str());
-	viewer.setBackgroundColor (255, 255, 255);
-	visualization::PointCloudColorHandlerRGBField<PointType> rgb(cloud);
-	viewer.addPointCloud<PointType> (cloud, rgb, "sample cloud");
-	viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
-	viewer.addPointCloudNormals<PointType, Normal> (cloud, normals, 10, 0.05, "normals");
-	viewer.addCoordinateSystem (1.0);
-	viewer.initCameraParameters ();
-	while (!viewer.wasStopped ()){
+	if(stampResult){
+		visualization::PCLVisualizer viewer (name_viewer.data.c_str());
+		viewer.setBackgroundColor (255, 255, 255);
+		visualization::PointCloudColorHandlerRGBField<PointType> rgb(cloud);
+		viewer.addPointCloud<PointType> (cloud, rgb, "sample cloud");
+		viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
+		viewer.addPointCloudNormals<PointType, Normal> (cloud, normals, 10, 0.05, "normals");
+		viewer.addCoordinateSystem (1.0);
+		viewer.initCameraParameters ();
+		while (!viewer.wasStopped ()){
 		viewer.spinOnce ();
+	}
 	}
 }
 
@@ -371,15 +376,17 @@ void simpleVis (PointCloud<PointType>::ConstPtr cloud){
   	// --------------------------------------------
 	// -----Open 3D viewer and add point cloud-----
 	// --------------------------------------------
-	visualization::PCLVisualizer viewer (name_viewer.data.c_str());
-	viewer.setBackgroundColor (255, 255, 255);
-	viewer.addPointCloud<PointType> (cloud, "sample cloud");
-	viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
-	viewer.addCoordinateSystem (1.0);
-	viewer.initCameraParameters ();
-	while (!viewer.wasStopped ()){
-		viewer.spinOnce ();
-	}
+	if(stampResult){
+		visualization::PCLVisualizer viewer (name_viewer.data.c_str());
+		viewer.setBackgroundColor (255, 255, 255);
+		viewer.addPointCloud<PointType> (cloud, "sample cloud");
+		viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
+		viewer.addCoordinateSystem (1.0);
+		viewer.initCameraParameters ();
+		while (!viewer.wasStopped ()){
+			viewer.spinOnce ();
+		}
+		}
 }
 
 PointCloud<PointType>::Ptr rotoTraslatePCD(const PointCloud<PointType>::ConstPtr &cloud){
@@ -884,7 +891,7 @@ vector<PointCloud<PointType>::Ptr> remove_plane(const PointCloud<PointType>::Con
 	ne.setInputCloud (cloud_temp);
 	ne.compute (*cloud_normals);
 
-	//name_viewer.data = "Cloud Temp + Normals"; normalsVis(cloud_temp, cloud_normals);
+	name_viewer.data = "Cloud Temp + Normals"; normalsVis(cloud_temp, cloud_normals);
 
 	seg2.setInputCloud (cloud_temp);
 	seg2.setInputNormals (cloud_normals);
@@ -900,14 +907,14 @@ vector<PointCloud<PointType>::Ptr> remove_plane(const PointCloud<PointType>::Con
 	extract2.setNegative (true);				// Extract the outliers
 	extract2.filter (*cloud_outliers);			// cloud_outliers contains everything but the plane
 
-	//name_viewer.data = "Cloud Outliers"; simpleVis(cloud_outliers);
+	name_viewer.data = "Cloud Outliers"; simpleVis(cloud_outliers);
 
 	extract.setInputCloud (cloud_temp);
 	extract.setIndices (inliers);
 	extract.setNegative (false);			
 	extract.filter (*cloud_inliers);			// cloud_inliers contains only the plane
 	
-	//name_viewer.data = "Cloud Inliers"; simpleVis(cloud_inliers);
+	name_viewer.data = "Cloud Inliers"; simpleVis(cloud_inliers);
 
 	return{cloud_outliers, cloud_inliers};
 }
@@ -963,7 +970,7 @@ PointCloud<PointType>::Ptr Plan_segmentation(const PointCloud<PointType>::ConstP
 	pass4.setFilterLimits (minCutZ, maxCutZ);
 	pass4.filter (*cloud_outliers);
 
-	//name_viewer.data = "Cloud Outliers Down"; simpleVis(cloud_outliers_down);
+	name_viewer.data = "Cloud Outliers Down"; simpleVis(cloud_outliers_down);
 	//name_viewer.data = "Cloud Outliers Up"; simpleVis(cloud_outliers);
 	
 	out_in_cloud = remove_plane(cloud_outliers_down, seg, seg2, extract, extract2, ne);
@@ -981,7 +988,7 @@ PointCloud<PointType>::Ptr Plan_segmentation(const PointCloud<PointType>::ConstP
 	sor.setStddevMulThresh (1.0);
 	sor.filter (*cloud_inliers);
 
-	//name_viewer.data = "Cloud Inliers Filtered"; simpleVis(cloud_inliers);
+	name_viewer.data = "Cloud Inliers Filtered"; simpleVis(cloud_inliers);
 	//name_viewer.data = "Cloud Outliers"; simpleVis(cloud_outliers);
 
 	PointType minPt, maxPt;
@@ -1031,7 +1038,7 @@ PointCloud<PointType>::Ptr Plan_segmentation(const PointCloud<PointType>::ConstP
 	sor2.filter (*cloud_outliers_filtered);
 	
 
-	//name_viewer.data = "Cloud Outliers Filtered"; simpleVis(cloud_outliers_filtered);
+	name_viewer.data = "Cloud Outliers Filtered"; simpleVis(cloud_outliers_filtered);
 
 	return cloud_outliers_filtered;
 }
@@ -1091,7 +1098,8 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
     fromPCLPointCloud2(pcl_pc2,*temp_cloud);
 
 	ROS_INFO("temp_cloud size : %d", temp_cloud->size());
-	//name_viewer.data = "Cloud Temp"; simpleVis(temp_cloud);
+	name_viewer.data = "Cloud Temp"; 
+	simpleVis(temp_cloud);
 
 	// *************************************** Filter Using Segmentation  *************************
 	  
@@ -1368,16 +1376,17 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 			*/
 		}
 	}
-	/* ------- print final result -------
-	CloudStyle clusterStyle2 = style_black;
-	visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (temp_cloud, clusterStyle2.r, clusterStyle2.g, clusterStyle2.b);
-	viewer.addPointCloud (temp_cloud, instance_color_handler,  to_string(registered_instances_global.size ()));
-	viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, clusterStyle2.size, to_string(registered_instances_global.size ()));
-	while (!viewer.wasStopped ()){
-		viewer.spinOnce ();
+	
+	if(stampResult){
+		/* ------- print final result -------*/
+		CloudStyle clusterStyle2 = style_black;
+		visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (temp_cloud, clusterStyle2.r, clusterStyle2.g, clusterStyle2.b);
+		viewer.addPointCloud (temp_cloud, instance_color_handler,  to_string(registered_instances_global.size ()));
+		viewer.setPointCloudRenderingProperties (visualization::PCL_VISUALIZER_POINT_SIZE, clusterStyle2.size, to_string(registered_instances_global.size ()));
+		while (!viewer.wasStopped ()){
+			viewer.spinOnce ();
+		}
 	}
-	/**/
-
 
 	publishResults();
 
@@ -1387,8 +1396,16 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 int main(int argc, char **argv){	
 	
 	argc_g = argc;
-	
-	for (int i = 1; i < argc; i++){
+	 
+	if (argc < 2){
+        ROS_INFO("Usage: rosrun hw1 node_hw1_task_2 [0 = Stamp disable, otherwise = Stamp enable] frame_id_1 frame_id_2 ...");
+        return 0;
+    }
+	if(stoi(argv[1]) == 1){
+		ROS_INFO("Node launched with Stamp Enable! Close windows that will appear to continue..");
+		stampResult = true;
+	}
+	for (int i = 2; i < argc; i++){
         argv_g[i-1] = argv[i];
     }
 	link_tf.data = "camera_link";
