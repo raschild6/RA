@@ -2,6 +2,10 @@
 
 using namespace std;
 
+
+// TODO: per semplificare l'uscita dalle piattaforme sarebbe da fargli fare una rotazione a M_PI/2 ma dai miei test con un pò di fatica ce la fa lo stesso
+
+
 bool mode = false;    // false : narrow passages mode
                       // true  : open space mode
 
