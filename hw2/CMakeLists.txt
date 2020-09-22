@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(hw_2)
+project(hw2)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
 
@@ -87,14 +87,9 @@ include_directories(
    ###
      ###
 
-#add_executable(node_b src/node_b.cpp)
-#add_executable(node_a src/node_a.cpp)
-#add_executable(node_c src/node_c.cpp)
-add_executable(node_d src/node_d.cpp)
-target_link_libraries(node_d ${catkin_LIBRARIES})
-#target_link_libraries(node_b ${catkin_LIBRARIES})
-#target_link_libraries(node_a ${catkin_LIBRARIES})
-#target_link_libraries(node_c ${catkin_LIBRARIES})
+
+add_executable(node_hw2_task_1 src/node_hw2_task_1.cpp)
+target_link_libraries(node_hw2_task_1 ${catkin_LIBRARIES})
 
 #############
 ## Testing ##
