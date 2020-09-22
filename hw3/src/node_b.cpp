@@ -92,12 +92,28 @@ void change_destination(){
 
     case -1:
     {
-      change_state(5);      
-      finish_narrow_mode_check = 5;
-      ROS_INFO("STATE 5 ACTIVATED - Finish narrow mode");
+      if(gate_saved == 2){
+        gate_saved = -1;
+        stop_laser = true;
+        des_pose.pose.position = robot_pose.pose.pose.position;
+        des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI*8/13);
+
+        des_pose.header.frame_id = "marrtino_map";
+        des_pose.header.stamp = ros::Time(0); /**/
+        ROS_INFO("\t\t- Destination position = [%f, %f, %f]", des_pose.pose.position.x, des_pose.pose.position.y, des_pose.pose.position.z);
+        ROS_INFO("\t\t- Destination orientation = [%f, %f, %f, %f]", des_pose.pose.orientation.x, des_pose.pose.orientation.y, des_pose.pose.orientation.z, des_pose.pose.orientation.w);
+        tf::Pose current_goal;
+        tf::poseMsgToTF(des_pose.pose, current_goal);
+
+        ROS_INFO("\t\t- Destination yaw = %f", tf::getYaw(current_goal.getRotation()));
+        change_state(1);
+      }else{
+        change_state(5);      
+        finish_narrow_mode_check = 5;
+        ROS_INFO("STATE 5 ACTIVATED - Finish narrow mode");
+      }
     }
     break;
-    
     case 0:
     {
       des_pose.pose.position.x = -1.327743;
@@ -136,7 +152,7 @@ void change_destination(){
     case 2:
     {
       des_pose.pose.position = robot_pose.pose.pose.position;
-      des_pose.pose.position.x = 1.18;
+      des_pose.pose.position.x = 1.17;
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
@@ -359,7 +375,7 @@ void change_destination(){
       if(gate_saved == 1)
         des_pose.pose.position.y = 2.65;
       else if(gate_saved == 2)
-        des_pose.pose.position.y = 2.80;
+        des_pose.pose.position.y = 2.41;
       else{
         ROS_INFO("WARNING: gate_saved not initialized");
         des_pose.pose.position.y = 2.65;
@@ -626,6 +642,9 @@ geometry_msgs::Twist done()
 
     switch (narrow_action_step){
 
+      case -1:
+        // used to last rotation before exit from gate 2
+      break;
         //after go to end corridor, rotate right in step
       case 0:
         narrow_action_step = 5;
@@ -891,6 +910,17 @@ void check_goal(){
 
     if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.1)
       done();
+  }
+  else if (narrow_action_step == -1 && gate_saved == -1){
+    tf::Pose current_goal;
+    tf::poseMsgToTF(des_pose.pose, current_goal);
+    tf::Pose current_pose;
+    tf::poseMsgToTF(robot_pose.pose.pose, current_pose);
+
+    if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.1){
+      done();
+      gate_saved = 0;
+    }
   }
 }
 void odomPoseCallback(const nav_msgs::Odometry::ConstPtr &msgOdom)
@@ -1168,7 +1198,7 @@ bool turn_front_right_plan(){
   
   msg = turn_left();
   sendMotorCommand(msg);
-  ros::Duration(2*rotate_time).sleep();
+  ros::Duration(rotate_time).sleep();
   msg = done();
   sendMotorCommand(msg);
   ROS_INFO("End back left rotation completed");
@@ -1224,7 +1254,7 @@ bool turn_front_left_plan(){
   
   msg = turn_right();
   sendMotorCommand(msg);
-  ros::Duration(2*rotate_time).sleep();
+  ros::Duration(rotate_time).sleep();
   msg = done();
   sendMotorCommand(msg);
   ROS_INFO("End back right rotation completed");
