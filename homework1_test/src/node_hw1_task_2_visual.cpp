@@ -1126,7 +1126,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 	}
 	
 
-	/* ------- print final result ------- */
+	/* ------- print final result ------- * /
 	pcl::visualization::PCLVisualizer viewer ("Hypotheses Verification");
 	viewer.setBackgroundColor (1, 1, 1);
 	/**/
@@ -1370,7 +1370,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 
 			cloud_to_publish.push_back({cloud_rotoTrans, meshTypeCloud[i]});
 
-			/* ------- print final result ------- */
+			/* ------- print final result ------- * /
 			CloudStyle clusterStyle = style_red;
 			visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (cloud_rotoTrans, clusterStyle.r, clusterStyle.g, clusterStyle.b);
 			viewer.addPointCloud (cloud_rotoTrans, instance_color_handler,  to_string(i));
@@ -1379,7 +1379,7 @@ void Pcl_camera(const sensor_msgs::PointCloud2ConstPtr& MScloud){
 		}
 	}
 	
-	/* ------- print final result -------*/
+	/* ------- print final result -------* /
 	CloudStyle clusterStyle2 = style_black;
 	visualization::PointCloudColorHandlerCustom<PointType> instance_color_handler (temp_cloud, clusterStyle2.r, clusterStyle2.g, clusterStyle2.b);
 	viewer.addPointCloud (temp_cloud, instance_color_handler,  to_string(registered_instances_global.size ()));
