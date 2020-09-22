@@ -4,6 +4,7 @@
 #include <numeric>
 #include <math.h>
 #include <ros/ros.h>
+#include "std_msgs/String.h"
 #include <move_base_msgs/MoveBaseAction.h>
 #include <actionlib/client/simple_action_client.h>
 

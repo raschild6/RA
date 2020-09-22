@@ -17,6 +17,9 @@ int id_goals = 0;
 float find_obstacle = 0.75;
 int free_right_platform = 0;
 
+ros::Publisher wait_ur5_pub;
+bool obj_loaded = false;    // wait until ur_5 load object to marrtino basket
+bool hmw_4 = false;         // used to interact with ur_5 (pass '1' as argument) 
 
 /**** LASER open space variables ****/
 ros::Publisher cmd_pub;
@@ -49,6 +52,7 @@ int step_rotate_right = 0;
 int step_rotate_left = 0;
 
 int choose_gate = 0;  // 0 = not used, -2 = wait new clear laser scan, -1 = used but gate not chosen yet, 1-2 = gate1-gate2
+int gate_saved = 0;
 
 float d_front = 0.3;
 float d_back = 0.1;
@@ -351,7 +355,16 @@ void change_destination(){
     case 9:
     {
       des_pose.pose.position = robot_pose.pose.pose.position;
-      des_pose.pose.position.y = 2.65;
+
+      if(gate_saved == 1)
+        des_pose.pose.position.y = 2.65;
+      else if(gate_saved == 2)
+        des_pose.pose.position.y = 2.80;
+      else{
+        ROS_INFO("WARNING: gate_saved not initialized");
+        des_pose.pose.position.y = 2.65;
+      }
+
       des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
       des_pose.header.frame_id = "marrtino_map";
@@ -626,10 +639,12 @@ geometry_msgs::Twist done()
         if(choose_gate == 1){
           ROS_INFO("Start to go to gate 1");
           narrow_action_step = 7;
+          gate_saved = 1;
           choose_gate = 0;
         }else if(choose_gate == 2){
           ROS_INFO("Start to go to gate 2");
           narrow_action_step = 2;
+          gate_saved = 2;
           choose_gate = 0;
         }
       }
@@ -1123,7 +1138,7 @@ bool turn_front_right_plan(){
   sendMotorCommand(msg);
   
   // wait until front object disappear from front_2 or timeout
-  while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 3){
+  while(action_step != 1 && ros::Time::now().toSec() - rotate_time_start < 3.0){
     if(saveFatalCollision())
       return false;
     action_internal_condition = false;    // switch next action_step
@@ -1141,7 +1156,7 @@ bool turn_front_right_plan(){
   ros::Duration(0.5).sleep();
 
   // wait until object appear in back_1 
-  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 3.0){
+  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 2.0){
     if(saveFatalCollision())
       return false;
     ros::Duration(0.3).sleep();
@@ -1197,7 +1212,7 @@ bool turn_front_left_plan(){
   ros::Duration(0.5).sleep();
 
   // wait until object disappear in right_2 or timeout 
-  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 3.0){
+  while(action_step != 2 && ros::Time::now().toSec() - go_straight_time_start < 2.0){
     if(saveFatalCollision())
       return false;
     ros::Duration(0.3).sleep();
@@ -1406,7 +1421,7 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
           //if(get<0>(regions["back_1"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
           
           // check when obj exit from right_2
-          if(get<0>(regions["right_2"]) >= 1.5*min_obstacle_dist && !action_internal_condition)
+          if(get<0>(regions["right_2"]) >= min_obstacle_dist && !action_internal_condition)
             action_step = 2;
             
         break;
@@ -1419,7 +1434,7 @@ void laserReadCallback(const sensor_msgs::LaserScan &msg){
           //if(get<0>(regions["back_2"]) <= 1.5*min_obstacle_dist && !action_internal_condition)
           
           // check when obj exit from left_1
-          if(get<0>(regions["left_1"]) >= 1.5*min_obstacle_dist && !action_internal_condition)
+          if(get<0>(regions["left_1"]) >= min_obstacle_dist && !action_internal_condition)
             action_step = 2;
 
         break;
@@ -1573,6 +1588,14 @@ void correctPoseWRTOdom(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
   
 }
 
+void waitMarrtinoCallback(const std_msgs::String::ConstPtr& wait_msg){
+
+  if(wait_msg->data == "loaded")
+    obj_loaded = true;
+  else
+    obj_loaded = false;
+}
+
 
 int main(int argc, char **argv){
 
@@ -1580,17 +1603,35 @@ int main(int argc, char **argv){
   ros::NodeHandle n;
   
   ros::Rate r(100);
+
+  if (argc > 1){
+    if(stoi(argv[1]) == 1){
+      ROS_INFO("INFO: Node launched without interaction with ur_5!");
+      hmw_4 = false;
+    }else{
+      hmw_4 = true;
+    }
+
+  }else{
+    ROS_INFO("INFO: Node launched without interaction with ur_5!");
+    hmw_4 = false;
+  }
   
   initMap();
 
+  //ros::Publisher cancel_goal = n.advertise<actionlib_msgs::GoalID>("/marrtino/move_base/cancel", 1);    ---> NOT WORK  
   //ros::Subscriber correct_goal_pose = n.subscribe("/marrtino/amcl_pose", 1, correctPoseWRTOdom);
   ros::Subscriber goals_status = n.subscribe("/marrtino/move_base/status", 1, resultGoalsStatus);
   ros::Subscriber sub_odom = n.subscribe("/marrtino/marrtino_base_controller/odom", 1, odomPoseCallback);
   ros::Subscriber sub_laser = n.subscribe("/marrtino/scan", 1, laserReadCallback);
   cmd_pub = n.advertise<geometry_msgs::Twist>("/marrtino/move_base/cmd_vel", 1);
   initpose_pub = n.advertise<geometry_msgs::PoseWithCovarianceStamped>("/marrtino/initialpose", 1);
-  
-  //ros::Publisher cancel_goal = n.advertise<actionlib_msgs::GoalID>("/marrtino/move_base/cancel", 1);    ---> NOT WORK  
+
+  ros::Subscriber wait_marrtino_pub;
+  if(hmw_4){
+     wait_ur5_pub = n.advertise<std_msgs::String>("marrtino/wait_ur5", 1);
+     wait_marrtino_pub = n.subscribe("/marrtino/wait_marrtino", 1, waitMarrtinoCallback);
+  }
   
   MoveBaseClient ac("marrtino/move_base", true);
   
@@ -1694,8 +1735,8 @@ int main(int argc, char **argv){
                 current_goal_map_pose.header.stamp = ros::Time(0); /**/
         
                 // PLATFORM_RIGHT_GOAL --- GREEN final platform right
-                current_goal_map_pose.pose.position.x = -0.482639;
-                current_goal_map_pose.pose.position.y = 0.565774;
+                current_goal_map_pose.pose.position.x = -0.517;//-0.482639;       //add 0.1 to center basket marrtino with platform
+                current_goal_map_pose.pose.position.y = 0.5657;//0.565774;
                 current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
                 current_goal = getGoal(current_goal_map_pose);
                 ac.sendGoal(current_goal);
@@ -1729,8 +1770,8 @@ int main(int argc, char **argv){
                 current_goal_map_pose.header.stamp = ros::Time(0); /**/
         
                 // PLATFORM_LEFT_GOAL --- GREEN final platform left
-                current_goal_map_pose.pose.position.x = 0.101878;
-                current_goal_map_pose.pose.position.y = 0.557094;
+                current_goal_map_pose.pose.position.x = 0.2018; //0.101878;       //add 0.1 to center basket marrtino with platform
+                current_goal_map_pose.pose.position.y = 0.557; //0.557094
                 current_goal_map_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
                 current_goal = getGoal(current_goal_map_pose);
                 ac.sendGoal(current_goal);
@@ -1741,6 +1782,25 @@ int main(int argc, char **argv){
             
             }else if(id_goals == 1){
               
+              // If hmw_4 is set -> wait interaction with ur_5 
+              if(hmw_4){
+                std_msgs::String wait_msgs;
+                if(free_right_platform < 3){      // right platform
+                  wait_msgs.data = "right";
+                  wait_ur5_pub.publish(wait_msgs);
+                }else{                            // left platform
+                  wait_msgs.data = "left";
+                  wait_ur5_pub.publish(wait_msgs);
+                }
+                ROS_INFO("Waiting that ur_5 load objects to marrtino..");
+
+                while(!obj_loaded){
+                  r.sleep();
+                }
+                obj_loaded = false;
+                ROS_INFO("All object loaded!! Come back to home..");
+              }
+
               ROS_INFO(" ----- Sending goal -----");
               // Send goal and start open space
               current_goal_map_pose.header.stamp = ros::Time(0); /**/
@@ -1752,7 +1812,7 @@ int main(int argc, char **argv){
               current_goal = getGoal(current_goal_map_pose);
               ac.sendGoal(current_goal);
               
-
+              free_right_platform = 0;
               id_goals++;
             
             }else{
