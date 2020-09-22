@@ -173,7 +173,7 @@ void change_destination(){
     case 3:
     {
       des_pose.pose.position.x = 1.23;
-      des_pose.pose.position.y = 3.70;
+      des_pose.pose.position.y = 3.60;
       des_pose.pose.position.z = 0;
       des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0);
 
@@ -190,10 +190,10 @@ void change_destination(){
     break;
     case 4:
     {
-      des_pose.pose.position.x = -1.28;
+      des_pose.pose.position.x = -1.2;
       des_pose.pose.position.y = 3.75;
       des_pose.pose.position.z = 0;
-      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-3.130344);
+      des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI);
 
       des_pose.header.frame_id = "marrtino_map";
       des_pose.header.stamp = ros::Time(0); /**/
@@ -262,7 +262,7 @@ void change_destination(){
           ROS_INFO("START ROTATE LEFT IN STEPS");
           des_pose.pose.position = robot_pose.pose.pose.position;
           //des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.004280);
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(1.9);
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(4*M_PI/7);
 
           des_pose.header.frame_id = "marrtino_map";
           des_pose.header.stamp = ros::Time(0); /**/
@@ -275,8 +275,8 @@ void change_destination(){
           change_state(2);
           
       }else if(step_rotate_left == 1){
-          des_pose.pose.position.x = robot_pose.pose.pose.position.x - 0.1;
-          des_pose.pose.position.y = robot_pose.pose.pose.position.y + 0.1; 
+          des_pose.pose.position.x = robot_pose.pose.pose.position.x - 0.13;
+          des_pose.pose.position.y = robot_pose.pose.pose.position.y + 0.13; 
           des_pose.pose.position.z = 0;
           des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
@@ -292,7 +292,7 @@ void change_destination(){
       }else if(step_rotate_left == 2){
           ROS_INFO("FINISH ROTATE LEFT IN PLACE");
           des_pose.pose.position = robot_pose.pose.pose.position;
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(3.130344);
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(M_PI);
 
           des_pose.header.frame_id = "marrtino_map";
           des_pose.header.stamp = ros::Time(0); /**/
@@ -404,7 +404,7 @@ void change_destination(){
           ROS_INFO("START ROTATE LEFT IN PLACE");
           des_pose.pose.position = robot_pose.pose.pose.position;
           //des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.004280);
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-2.828036);
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-9*M_PI/10);
 
           des_pose.header.frame_id = "marrtino_map";
           des_pose.header.stamp = ros::Time(0); /**/
@@ -417,8 +417,8 @@ void change_destination(){
           change_state(2);
           
       }else if(step_rotate_left == 1){
-          des_pose.pose.position.x = robot_pose.pose.pose.position.x - 0.1;
-          des_pose.pose.position.y = robot_pose.pose.pose.position.y - 0.1; 
+          des_pose.pose.position.x = robot_pose.pose.pose.position.x - 0.13;
+          des_pose.pose.position.y = robot_pose.pose.pose.position.y - 0.13; 
           des_pose.pose.position.z = 0;
           des_pose.pose.orientation = robot_pose.pose.pose.orientation;
 
@@ -434,7 +434,7 @@ void change_destination(){
       }else if(step_rotate_left == 2){
           ROS_INFO("FINISH ROTATE LEFT IN PLACE");
           des_pose.pose.position = robot_pose.pose.pose.position;
-          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-1.585109);
+          des_pose.pose.orientation = tf::createQuaternionMsgFromYaw(-M_PI/2);
 
           des_pose.header.frame_id = "marrtino_map";
           des_pose.header.stamp = ros::Time(0); /**/
@@ -900,7 +900,7 @@ void check_goal(){
         change_destination();
       }
     }else{
-      if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.01){
+      if (fabs(tf::getYaw(current_pose.getRotation()) - tf::getYaw(current_goal.getRotation())) < 0.1){
         done();
         step_rotate_left = 0;
       }
